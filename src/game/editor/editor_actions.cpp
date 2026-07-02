@@ -750,7 +750,8 @@ CEditorActionEditGroupProp::CEditorActionEditGroupProp(CEditorMap *pMap, int Gro
 		"clip X",
 		"clip Y",
 		"clip W",
-		"clip H"};
+		"clip H",
+		"toggle animations",};
 	static_assert(std::size(s_apNames) == (size_t)EGroupProp::NUM_PROPS);
 
 	str_format(m_aDisplayText, sizeof(m_aDisplayText), "Edit group %d %s property", m_GroupIndex, s_apNames[(int)Prop]);
@@ -798,6 +799,8 @@ void CEditorActionEditGroupProp::Apply(int Value)
 		pGroup->m_ClipW = Value;
 	if(m_Prop == EGroupProp::CLIP_H)
 		pGroup->m_ClipH = Value;
+	if(m_Prop == EGroupProp::DISABLE_ANIMS)
+		pGroup->m_DisableAnims = Value;
 
 	Map()->OnModify();
 }

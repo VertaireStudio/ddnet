@@ -26,6 +26,7 @@ public:
 	int m_ClipY;
 	int m_ClipW;
 	int m_ClipH;
+	bool m_DisableAnims = false;
 
 	char m_aName[12];
 	bool m_GameGroup;

@@ -608,6 +608,7 @@ int CLayerGroupPropTracker::PropToValue(EGroupProp Prop)
 	case EGroupProp::CLIP_Y: return m_pObject->m_ClipY;
 	case EGroupProp::CLIP_W: return m_pObject->m_ClipW;
 	case EGroupProp::CLIP_H: return m_pObject->m_ClipH;
+	case EGroupProp::DISABLE_ANIMS: return m_pObject->m_DisableAnims;
 	default: return 0;
 	}
 }

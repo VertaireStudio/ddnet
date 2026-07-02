@@ -675,6 +675,7 @@ CUi::EPopupMenuFunctionResult CEditor::PopupGroup(void *pContext, CUIRect View, 
 		{"Clip Y", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipY, PROPTYPE_INT, -1000000, 1000000},
 		{"Clip W", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipW, PROPTYPE_INT, 0, 1000000},
 		{"Clip H", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipH, PROPTYPE_INT, 0, 1000000},
+		{"Disable Animations", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_DisableAnims, PROPTYPE_BOOL, 0, 1},
 		{nullptr},
 	};
 
@@ -735,6 +736,10 @@ CUi::EPopupMenuFunctionResult CEditor::PopupGroup(void *pContext, CUIRect View, 
 		else if(Prop == EGroupProp::CLIP_H)
 		{
 			pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipH = NewVal;
+		}
+		else if(Prop == EGroupProp::DISABLE_ANIMS)
+		{
+			pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_DisableAnims = NewVal;
 		}
 	}
 
