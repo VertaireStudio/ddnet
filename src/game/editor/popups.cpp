@@ -675,7 +675,7 @@ CUi::EPopupMenuFunctionResult CEditor::PopupGroup(void *pContext, CUIRect View, 
 		{"Clip Y", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipY, PROPTYPE_INT, -1000000, 1000000},
 		{"Clip W", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipW, PROPTYPE_INT, 0, 1000000},
 		{"Clip H", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipH, PROPTYPE_INT, 0, 1000000},
-		{"Disable Animations", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_DisableAnims, PROPTYPE_BOOL, 0, 1},
+		{"Disable Envelopes", pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_DisableEnvs, PROPTYPE_BOOL, 0, 1},
 		{nullptr},
 	};
 
@@ -737,9 +737,57 @@ CUi::EPopupMenuFunctionResult CEditor::PopupGroup(void *pContext, CUIRect View, 
 		{
 			pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_ClipH = NewVal;
 		}
-		else if(Prop == EGroupProp::DISABLE_ANIMS)
+		else if(Prop == EGroupProp::DISABLE_ENVS)
 		{
-			pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup]->m_DisableAnims = NewVal;
+			auto pGroup = pEditor->Map()->m_vpGroups[pEditor->Map()->m_SelectedGroup];
+			pGroup->m_DisableEnvs = NewVal;
+			
+			size_t LayerBackupIndex = 0;
+
+			for(const auto &pLayer : pGroup->m_vpLayers)
+			{
+				if(pLayer->m_Type == LAYERTYPE_QUADS)
+				{
+					auto pQuadLayer = std::static_pointer_cast<CLayerQuads>(pLayer);
+					
+					if (NewVal)
+					{
+						std::vector<SQuadEnvelopeBackup> vBackups;
+						vBackups.reserve(pQuadLayer->m_vQuads.size());
+						for(const auto &Quad : pQuadLayer->m_vQuads)
+						{
+							SQuadEnvelopeBackup Backup;
+							Backup.m_PosEnv = Quad.m_PosEnv;
+							Backup.m_ColorEnv = Quad.m_ColorEnv;
+							Backup.m_PosEnvOffset = Quad.m_PosEnvOffset;
+							Backup.m_ColorEnvOffset = Quad.m_ColorEnvOffset;
+							vBackups.push_back(Backup);
+						}
+						pGroup->m_vvQuadEnvelopeBackups.push_back(vBackups);
+						for(auto &Quad : pQuadLayer->m_vQuads)
+						{
+							Quad.m_PosEnv = -1;
+							Quad.m_ColorEnv = -1;
+						}
+					}
+					else
+					{
+						if(LayerBackupIndex < pGroup->m_vvQuadEnvelopeBackups.size())
+						{
+							const auto &vBackups = pGroup->m_vvQuadEnvelopeBackups[LayerBackupIndex];
+							for(size_t i = 0; i < pQuadLayer->m_vQuads.size() && i < vBackups.size(); ++i)
+							{
+								pQuadLayer->m_vQuads[i].m_PosEnv = vBackups[i].m_PosEnv;
+								pQuadLayer->m_vQuads[i].m_ColorEnv = vBackups[i].m_ColorEnv;
+								pQuadLayer->m_vQuads[i].m_PosEnvOffset = vBackups[i].m_PosEnvOffset;
+								pQuadLayer->m_vQuads[i].m_ColorEnvOffset = vBackups[i].m_ColorEnvOffset;
+							}
+						}
+						LayerBackupIndex++;
+					}
+					
+				}
+			}
 		}
 	}
 

@@ -799,8 +799,8 @@ void CEditorActionEditGroupProp::Apply(int Value)
 		pGroup->m_ClipW = Value;
 	if(m_Prop == EGroupProp::CLIP_H)
 		pGroup->m_ClipH = Value;
-	if(m_Prop == EGroupProp::DISABLE_ANIMS)
-		pGroup->m_DisableAnims = Value;
+	if(m_Prop == EGroupProp::DISABLE_ENVS)
+		pGroup->m_DisableEnvs = Value;
 
 	Map()->OnModify();
 }

@@ -8,6 +8,14 @@
 #include <memory>
 #include <vector>
 
+struct SQuadEnvelopeBackup
+{
+	int m_PosEnv;
+	int m_ColorEnv;
+	int m_PosEnvOffset;
+	int m_ColorEnvOffset;
+};
+
 class CLayerGroup : public CMapObject
 {
 public:
@@ -26,12 +34,14 @@ public:
 	int m_ClipY;
 	int m_ClipW;
 	int m_ClipH;
-	bool m_DisableAnims = false;
+	bool m_DisableEnvs = false;
 
 	char m_aName[12];
 	bool m_GameGroup;
 	bool m_Visible;
 	bool m_Collapse;
+
+	std::vector<std::vector<SQuadEnvelopeBackup>> m_vvQuadEnvelopeBackups;
 
 	explicit CLayerGroup(CEditorMap *pMap);
 	void OnAttach(CEditorMap *pMap) override;

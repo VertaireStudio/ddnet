@@ -108,7 +108,7 @@ enum class EGroupProp
 	CLIP_Y,
 	CLIP_W,
 	CLIP_H,
-	DISABLE_ANIMS,
+	DISABLE_ENVS,
 	NUM_PROPS,
 };
 
