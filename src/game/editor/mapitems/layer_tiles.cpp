@@ -4,9 +4,9 @@
 
 #include "image.h"
 
+#include <engine/graphics.h>
 #include <engine/keys.h>
 #include <engine/shared/config.h>
-#include <engine/shared/map.h>
 
 #include <game/editor/editor.h>
 #include <game/editor/editor_actions.h>
@@ -137,20 +137,6 @@ void CLayerTiles::PrepareForSave()
 	}
 }
 
-void CLayerTiles::ExtractTiles(const CTile *pSavedTiles, size_t SavedTilesSize) const
-{
-	const size_t DestSize = (size_t)m_Width * m_Height;
-	if(SavedTilesSize >= DestSize)
-	{
-		mem_copy(m_pTiles, pSavedTiles, DestSize * sizeof(CTile));
-		for(size_t TileIndex = 0; TileIndex < DestSize; ++TileIndex)
-		{
-			m_pTiles[TileIndex].m_Skip = 0;
-			m_pTiles[TileIndex].m_Reserved = 0;
-		}
-	}
-}
-
 void CLayerTiles::MakePalette() const
 {
 	for(int y = 0; y < m_Height; y++)
@@ -158,27 +144,45 @@ void CLayerTiles::MakePalette() const
 			m_pTiles[y * m_Width + x].m_Index = y * 16 + x;
 }
 
-void CLayerTiles::Render(bool Tileset)
+void CLayerTiles::Render(const CEditorMap *pRenderMap)
 {
 	IGraphics::CTextureHandle Texture;
-	if(m_Image >= 0 && (size_t)m_Image < Map()->m_vpImages.size())
-		Texture = Map()->m_vpImages[m_Image]->m_Texture;
-	else if(m_HasGame)
+	if(m_HasGame)
+	{
 		Texture = Editor()->GetEntitiesTexture();
+	}
 	else if(m_HasFront)
+	{
 		Texture = Editor()->GetFrontTexture();
+	}
 	else if(m_HasTele)
+	{
 		Texture = Editor()->GetTeleTexture();
+	}
 	else if(m_HasSpeedup)
+	{
 		Texture = Editor()->GetSpeedupTexture();
+	}
 	else if(m_HasSwitch)
+	{
 		Texture = Editor()->GetSwitchTexture();
+	}
 	else if(m_HasTune)
+	{
 		Texture = Editor()->GetTuneTexture();
+	}
+	else if(m_Image >= 0 && (size_t)m_Image < pRenderMap->m_vpImages.size())
+	{
+		const auto &pImage = pRenderMap->m_vpImages[m_Image];
+		if(pImage->m_Width % 16 == 0 && pImage->m_Height % 16 == 0)
+		{
+			Texture = pImage->m_Texture;
+		}
+	}
 	Graphics()->TextureSet(Texture);
 
 	ColorRGBA ColorEnv = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-	Map()->m_EnvelopeEvaluator.EnvelopeEval(m_ColorEnvOffset, m_ColorEnv, ColorEnv, 4);
+	pRenderMap->m_EnvelopeEvaluator.EnvelopeEval(m_ColorEnvOffset, m_ColorEnv, ColorEnv, 4);
 	const ColorRGBA Color = ColorRGBA(m_Color.r / 255.0f, m_Color.g / 255.0f, m_Color.b / 255.0f, m_Color.a / 255.0f).Multiply(ColorEnv);
 
 	Graphics()->BlendNone();
@@ -187,7 +191,7 @@ void CLayerTiles::Render(bool Tileset)
 	Editor()->RenderMap()->RenderTilemap(m_pTiles, m_Width, m_Height, 32.0f, Color, LAYERRENDERFLAG_TRANSPARENT);
 
 	// Render DDRace Layers
-	if(!Tileset)
+	if(m_RenderOverlays)
 	{
 		int OverlayRenderFlags = (g_Config.m_ClTextEntitiesEditor ? OVERLAYRENDERFLAG_TEXT : 0) | OVERLAYRENDERFLAG_EDITOR;
 		if(m_HasTele)
@@ -321,7 +325,7 @@ int CLayerTiles::BrushGrab(CLayerGroup *pBrush, CUIRect Rect)
 				pGrabbed->m_pTiles[y * pGrabbed->m_Width + x] = GetTile(r.x + x, r.y + y);
 
 				// copy the tele data
-				if(!Editor()->Input()->KeyIsPressed(KEY_SPACE))
+				if(!Editor()->m_ShowPicker)
 				{
 					pGrabbed->m_pTeleTile[y * pGrabbed->m_Width + x] = static_cast<CLayerTele *>(this)->m_pTeleTile[(r.y + y) * m_Width + (r.x + x)];
 					unsigned char TgtIndex = pGrabbed->m_pTeleTile[y * pGrabbed->m_Width + x].m_Type;
@@ -365,7 +369,7 @@ int CLayerTiles::BrushGrab(CLayerGroup *pBrush, CUIRect Rect)
 				pGrabbed->m_pTiles[y * pGrabbed->m_Width + x] = GetTile(r.x + x, r.y + y);
 
 				// copy the speedup data
-				if(!Editor()->Input()->KeyIsPressed(KEY_SPACE))
+				if(!Editor()->m_ShowPicker)
 				{
 					pGrabbed->m_pSpeedupTile[y * pGrabbed->m_Width + x] = static_cast<CLayerSpeedup *>(this)->m_pSpeedupTile[(r.y + y) * m_Width + (r.x + x)];
 					if(IsValidSpeedupTile(pGrabbed->m_pSpeedupTile[y * pGrabbed->m_Width + x].m_Type))
@@ -409,7 +413,7 @@ int CLayerTiles::BrushGrab(CLayerGroup *pBrush, CUIRect Rect)
 				pGrabbed->m_pTiles[y * pGrabbed->m_Width + x] = GetTile(r.x + x, r.y + y);
 
 				// copy the switch data
-				if(!Editor()->Input()->KeyIsPressed(KEY_SPACE))
+				if(!Editor()->m_ShowPicker)
 				{
 					pGrabbed->m_pSwitchTile[y * pGrabbed->m_Width + x] = static_cast<CLayerSwitch *>(this)->m_pSwitchTile[(r.y + y) * m_Width + (r.x + x)];
 					if(IsValidSwitchTile(pGrabbed->m_pSwitchTile[y * pGrabbed->m_Width + x].m_Type))
@@ -451,7 +455,7 @@ int CLayerTiles::BrushGrab(CLayerGroup *pBrush, CUIRect Rect)
 			{
 				pGrabbed->m_pTiles[y * pGrabbed->m_Width + x] = GetTile(r.x + x, r.y + y);
 
-				if(!Editor()->Input()->KeyIsPressed(KEY_SPACE))
+				if(!Editor()->m_ShowPicker)
 				{
 					pGrabbed->m_pTuneTile[y * pGrabbed->m_Width + x] = static_cast<CLayerTune *>(this)->m_pTuneTile[(r.y + y) * m_Width + (r.x + x)];
 					if(IsValidTuneTile(pGrabbed->m_pTuneTile[y * pGrabbed->m_Width + x].m_Type))
@@ -716,15 +720,14 @@ void CLayerTiles::Shift(EShiftDirection Direction)
 
 void CLayerTiles::ShowInfo()
 {
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+	CScreenRect ScreenRect = Graphics()->GetScreen();
 	Graphics()->TextureSet(Editor()->Client()->GetDebugFont());
 	Graphics()->QuadsBegin();
 
-	int StartY = std::max(0, (int)(ScreenY0 / 32.0f) - 1);
-	int StartX = std::max(0, (int)(ScreenX0 / 32.0f) - 1);
-	int EndY = std::min((int)(ScreenY1 / 32.0f) + 1, m_Height);
-	int EndX = std::min((int)(ScreenX1 / 32.0f) + 1, m_Width);
+	int StartY = std::max(0, (int)(ScreenRect.m_TopLeft.y / 32.0f) - 1);
+	int StartX = std::max(0, (int)(ScreenRect.m_TopLeft.x / 32.0f) - 1);
+	int EndY = std::min((int)(ScreenRect.m_BottomRight.y / 32.0f) + 1, m_Height);
+	int EndX = std::min((int)(ScreenRect.m_BottomRight.x / 32.0f) + 1, m_Width);
 
 	for(int y = StartY; y < EndY; y++)
 		for(int x = StartX; x < EndX; x++)
@@ -754,7 +757,7 @@ void CLayerTiles::ShowInfo()
 		}
 
 	Graphics()->QuadsEnd();
-	Graphics()->MapScreen(ScreenX0, ScreenY0, ScreenX1, ScreenY1);
+	Graphics()->MapScreen(ScreenRect);
 }
 
 void CLayerTiles::FillGameTiles(EGameTileOp Fill)
@@ -921,7 +924,7 @@ void CLayerTiles::FillGameTiles(EGameTileOp Fill)
 							pTLayer->m_pTeleTile[TileIndex].m_Type,
 							pTLayer->m_pTiles[TileIndex].m_Index};
 
-						pTLayer->RecordStateChange(x, y, Previous, Current);
+						pTLayer->RecordStateChange(x + OffsetX, y + OffsetY, Previous, Current);
 					}
 				}
 			}

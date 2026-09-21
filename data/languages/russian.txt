@@ -1273,9 +1273,6 @@ Initializing map logic
 Sending initial client info
 == Отправка начальных данных о клиенте
 
-Uploading map data to GPU
-== Загрузка данных о карте в GPU
-
 Getting game info
 == Получение игровых данных
 
@@ -2663,3 +2660,51 @@ Prediction margin
 
 Predict events (experimental)
 == Предсказывать события (экспериментально)
+
+[AntiPing: predict other players]
+Off
+== Выключен
+
+[AntiPing: predict other players]
+All
+== Все
+
+[Important alert message]
+Tap to dismiss…
+== 
+
+Initializing layers
+== 
+
+[Direct touch input]
+Relative aim
+== 
+
+[Predefined touch button behaviors]
+Joystick Relative Aim
+== 
+
+Virtual joystick which only aims and moves the mouse pointer relatively.
+== 
+
+Credits
+== 
+
+[AntiPing: predict other players]
+Interact
+== 
+
+Always predict frozen players
+== 
+
+No country flags match your filter criteria
+== 
+
+Join
+== 
+
+'%s' not bound.
+== 
+
+Press '%s' to show cursor.
+== 

@@ -1,7 +1,6 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "menus.h"
-#include "skins7.h"
 
 #include <base/dbg.h>
 #include <base/str.h>
@@ -9,24 +8,17 @@
 #include <engine/font_icons.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
-#include <engine/shared/linereader.h>
-#include <engine/shared/localization.h>
-#include <engine/shared/protocol7.h>
 #include <engine/storage.h>
 #include <engine/textrender.h>
-#include <engine/updater.h>
-
-#include <generated/protocol.h>
 
 #include <game/client/animstate.h>
-#include <game/client/components/chat.h>
-#include <game/client/components/menu_background.h>
+#include <game/client/components/console.h>
+#include <game/client/components/skins7.h>
 #include <game/client/components/sounds.h>
+#include <game/client/components/tooltips.h>
 #include <game/client/gameclient.h>
-#include <game/client/skin.h>
 #include <game/client/ui.h>
 #include <game/client/ui_listbox.h>
-#include <game/client/ui_scrollregion.h>
 #include <game/localization.h>
 
 #include <algorithm>
@@ -237,6 +229,7 @@ void CMenus::PopupConfirmDeleteSkin7()
 		return;
 	}
 	m_pSelectedSkin = nullptr;
+	m_DeletedSkinIndex7 = m_SelectedSkinIndex7;
 }
 
 void CMenus::RenderSettingsTeeCustom7(CUIRect MainView)
@@ -325,18 +318,18 @@ void CMenus::RenderSkinSelection7(CUIRect MainView)
 	}
 
 	m_pSelectedSkin = nullptr;
-	int OldSelected = -1;
+	m_SelectedSkinIndex7 = -1;
 	for(int i = 0; i < (int)s_vpSkinList.size(); ++i)
 	{
 		const CSkins7::CSkin *pSkin = s_vpSkinList[i];
 		if(!str_comp(pSkin->m_aName, CSkins7::ms_apSkinNameVariables[m_Dummy]))
 		{
 			m_pSelectedSkin = pSkin;
-			OldSelected = i;
+			m_SelectedSkinIndex7 = i;
 			break;
 		}
 	}
-	s_ListBox.DoStart(50.0f, s_vpSkinList.size(), 4, 1, OldSelected, &MainView);
+	s_ListBox.DoStart(50.0f, s_vpSkinList.size(), 4, 1, m_SelectedSkinIndex7, &MainView);
 
 	for(const CSkins7::CSkin *pSkin : s_vpSkinList)
 	{
@@ -368,8 +361,14 @@ void CMenus::RenderSkinSelection7(CUIRect MainView)
 		Ui()->DoLabel(&Label, pSkin->m_aName, 12.0f, TEXTALIGN_ML, Props);
 	}
 
-	const int NewSelected = s_ListBox.DoEnd();
-	if(NewSelected != -1 && NewSelected != OldSelected)
+	int NewSelected = s_ListBox.DoEnd();
+	if(m_DeletedSkinIndex7 >= 0)
+	{
+		// Select the skin which took the place of the deleted skin, or the last skin
+		NewSelected = std::min(m_DeletedSkinIndex7, (int)s_vpSkinList.size() - 1);
+		m_DeletedSkinIndex7 = -1;
+	}
+	if(NewSelected != -1 && NewSelected != m_SelectedSkinIndex7)
 	{
 		s_LastSelectionTime = Client()->GlobalTime();
 		m_pSelectedSkin = s_vpSkinList[NewSelected];

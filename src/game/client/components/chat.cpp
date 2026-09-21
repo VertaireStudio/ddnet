@@ -3,7 +3,10 @@
 
 #include "chat.h"
 
+#include <base/color.h>
 #include <base/io.h>
+#include <base/log.h>
+#include <base/log_color.h>
 #include <base/time.h>
 
 #include <engine/editor.h>
@@ -24,7 +27,7 @@
 #include <game/client/gameclient.h>
 #include <game/localization.h>
 
-char CChat::ms_aDisplayText[MAX_LINE_LENGTH] = "";
+char CChat::ms_aDisplayText[MAX_CHAT_LENGTH] = "";
 
 CChat::CLine::CLine()
 {
@@ -146,9 +149,7 @@ void CChat::Reset()
 	m_aCurrentInputText[0] = '\0';
 	DisableMode();
 	m_vServerCommands.clear();
-
-	for(int64_t &LastSoundPlayed : m_aLastSoundPlayed)
-		LastSoundPlayed = 0;
+	std::fill(std::begin(m_aLastSoundPlayed), std::end(m_aLastSoundPlayed), 0);
 }
 
 void CChat::OnRelease()
@@ -180,7 +181,7 @@ void CChat::ConChat(IConsole::IResult *pResult, void *pUserData)
 	else if(str_comp(pMode, "team") == 0)
 		((CChat *)pUserData)->EnableMode(1);
 	else
-		((CChat *)pUserData)->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "console", "expected all or team as mode");
+		log_error("chat", "expected all or team as mode");
 
 	if(pResult->GetString(1)[0] || g_Config.m_ClChatReset)
 		((CChat *)pUserData)->m_Input.Set(pResult->GetString(1));
@@ -259,6 +260,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 		{
 			m_Input.Clear();
 			m_pHistoryEntry = nullptr;
+			m_EditingNewLine = true;
 		}
 	}
 	else if(Event.m_Flags & IInput::FLAG_PRESS && (Event.m_Key == KEY_RETURN || Event.m_Key == KEY_KP_ENTER))
@@ -271,6 +273,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 
 		SendChatQueued(m_Input.GetString());
 		m_pHistoryEntry = nullptr;
+		m_EditingNewLine = true;
 		DisableMode();
 		GameClient()->OnRelease();
 		m_Input.Clear();
@@ -363,7 +366,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 			// insert the command
 			if(pCompletionCommand)
 			{
-				char aBuf[MAX_LINE_LENGTH];
+				char aBuf[MAX_CHAT_LENGTH];
 				// add part before the name
 				str_truncate(aBuf, sizeof(aBuf), m_Input.GetString(), m_PlaceholderOffset);
 
@@ -422,7 +425,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 			// insert the name
 			if(pCompletionString)
 			{
-				char aBuf[MAX_LINE_LENGTH];
+				char aBuf[MAX_CHAT_LENGTH];
 				// add part before the name
 				str_truncate(aBuf, sizeof(aBuf), m_Input.GetString(), m_PlaceholderOffset);
 
@@ -553,7 +556,7 @@ void CChat::OnMessage(int MsgType, void *pRawMsg)
 		/*
 		if(g_Config.m_ClCensorChat)
 		{
-			char aMessage[MAX_LINE_LENGTH];
+			char aMessage[MAX_CHAT_LENGTH];
 			str_copy(aMessage, pMsg->m_pMessage);
 			GameClient()->m_Censor.CensorMessage(aMessage);
 			AddLine(pMsg->m_ClientId, pMsg->m_Team, aMessage);
@@ -683,7 +686,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 			pEnd = pStrOld;
 		}
 
-		if(++Length >= MAX_LINE_LENGTH)
+		if(++Length >= MAX_CHAT_LENGTH)
 		{
 			*(const_cast<char *>(pStr)) = '\0';
 			break;
@@ -697,10 +700,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 
 	bool Highlighted = false;
 
-	auto &&FChatMsgCheckAndPrint = [this](const CLine &Line) {
-		char aBuf[1024];
-		str_format(aBuf, sizeof(aBuf), "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
-
+	auto &&FChatMsgCheckAndPrint = [](const CLine &Line) {
 		ColorRGBA ChatLogColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 		if(Line.m_Highlighted)
 		{
@@ -732,7 +732,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 		else
 			pFrom = "chat/all";
 
-		Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, pFrom, aBuf, ChatLogColor);
+		log_info_color(color_cast<LOG_COLOR>(ChatLogColor), pFrom, "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
 	};
 
 	// Custom color for new line
@@ -1172,7 +1172,7 @@ void CChat::OnRender()
 
 	const float Height = 300.0f;
 	const float Width = Height * Graphics()->ScreenAspect();
-	Graphics()->MapScreen(0.0f, 0.0f, Width, Height);
+	Graphics()->MapScreenToSize(Width, Height);
 
 	float x = 5.0f;
 	float y = 300.0f - 20.0f * FontSize() / 6.0f;

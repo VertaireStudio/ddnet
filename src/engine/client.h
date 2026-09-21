@@ -271,7 +271,7 @@ public:
 	virtual const std::vector<std::string> &MaplistEntries() const = 0;
 
 	// server info
-	virtual void GetServerInfo(class CServerInfo *pServerInfo) const = 0;
+	virtual const class CServerInfo &ServerInfo() const = 0;
 	virtual bool ServerCapAnyPlayerFlag() const = 0;
 
 	virtual int GetPredictionTime() = 0;
@@ -381,6 +381,8 @@ public:
 	 * @return `true` on success, `false` on failure.
 	 *
 	 * @remark This may not be called with untrusted input or it'll result in arbitrary code execution, especially on Windows.
+	 *
+	 * @remark On iOS the file or directory is shown in the Files app.
 	 */
 	virtual bool ViewFile(const char *pFilename) = 0;
 
