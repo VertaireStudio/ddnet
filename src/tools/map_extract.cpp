@@ -44,16 +44,44 @@ static void ExtractMapImages(CDataFileReader &Reader, const char *pPathSave)
 			log_error("map_extract", "failed to load name of image %d", i);
 			continue;
 		}
+		if(pItem->m_Version >= 2 && pItem->m_MustBe1 != CMapItemImageFormat::RGBA && pItem->m_MustBe1 != CMapItemImageFormat::WEBP)
+		{
+			log_error("map_extract", "ignoring image '%s' with unknown format %d", pName, pItem->m_MustBe1);
+			continue;
+		}
+
+		if(pItem->m_Version >= 2 && pItem->m_MustBe1 == CMapItemImageFormat::WEBP)
+		{
+			// embedded WebP bytes are stored verbatim, write them out without re-encoding
+			char aBuf[IO_MAX_PATH_LENGTH];
+			str_format(aBuf, sizeof(aBuf), "%s/%s.webp", pPathSave, pName);
+
+			const uint8_t *pData = static_cast<uint8_t *>(Reader.GetData(pItem->m_ImageData));
+			const int DataSize = Reader.GetDataSize(pItem->m_ImageData);
+			if(pData == nullptr)
+			{
+				log_error("map_extract", "failed to load WebP data. filename='%s'", aBuf);
+				continue;
+			}
+
+			log_info("map_extract", "writing image: %s (%d B)", aBuf, DataSize);
+			IOHANDLE Out = io_open(aBuf, IOFLAG_WRITE);
+			if(Out)
+			{
+				io_write(Out, pData, DataSize);
+				io_close(Out);
+			}
+			else
+			{
+				log_error("map_extract", "failed to open image file for writing. filename='%s'", aBuf);
+			}
+			Reader.UnloadData(pItem->m_ImageData);
+			Reader.UnloadData(pItem->m_ImageName);
+			continue;
+		}
 
 		char aBuf[IO_MAX_PATH_LENGTH];
 		str_format(aBuf, sizeof(aBuf), "%s/%s.png", pPathSave, pName);
-		Reader.UnloadData(pItem->m_ImageName);
-
-		if(pItem->m_Version >= 2 && pItem->m_MustBe1 != 1)
-		{
-			log_error("map_extract", "ignoring image '%s' with unknown format %d", aBuf, pItem->m_MustBe1);
-			continue;
-		}
 
 		CImageInfo Image;
 		Image.m_Width = pItem->m_Width;
@@ -61,12 +89,13 @@ static void ExtractMapImages(CDataFileReader &Reader, const char *pPathSave)
 		Image.m_Format = CImageInfo::FORMAT_RGBA;
 		Image.m_pData = static_cast<uint8_t *>(Reader.GetData(pItem->m_ImageData));
 
-		log_info("map_extract", "writing image: %s (%dx%d)", aBuf, pItem->m_Width, pItem->m_Height);
+		log_info("map_extract", "writing image: %s (%dx%d)", aBuf, Image.m_Width, Image.m_Height);
 		if(!CImageLoader::SavePng(io_open(aBuf, IOFLAG_WRITE), aBuf, Image))
 		{
 			log_error("map_extract", "failed to write image file. filename='%s'", aBuf);
 		}
 		Reader.UnloadData(pItem->m_ImageData);
+		Reader.UnloadData(pItem->m_ImageName);
 	}
 }
 

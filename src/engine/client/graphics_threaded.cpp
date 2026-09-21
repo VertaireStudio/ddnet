@@ -457,7 +457,7 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTexture(const char *pFilename,
 	dbg_assert(pFilename[0] != '\0', "Cannot load texture from file with empty filename"); // would cause Valgrind to crash otherwise
 
 	CImageInfo Image;
-	if(LoadPng(Image, pFilename, StorageType))
+	if(LoadImage(Image, pFilename, StorageType))
 	{
 		CTextureHandle Id = LoadTextureRawMove(Image, Flags, pFilename);
 		if(Id.IsValid())
@@ -555,12 +555,12 @@ static SWarning FormatPngliteIncompatibilityWarning(int PngliteIncompatible, con
 	return Warning;
 }
 
-bool CGraphics_Threaded::LoadPng(CImageInfo &Image, const char *pFilename, int StorageType)
+bool CGraphics_Threaded::LoadImage(CImageInfo &Image, const char *pFilename, int StorageType)
 {
 	IOHANDLE File = m_pStorage->OpenFile(pFilename, IOFLAG_READ, StorageType);
 
 	int PngliteIncompatible;
-	if(!CImageLoader::LoadPng(File, pFilename, Image, PngliteIncompatible))
+	if(!CImageLoader::LoadImage(File, pFilename, Image, PngliteIncompatible))
 		return false;
 
 	if(m_WarnPngliteIncompatibleImages && PngliteIncompatible != 0)
@@ -571,11 +571,10 @@ bool CGraphics_Threaded::LoadPng(CImageInfo &Image, const char *pFilename, int S
 	return true;
 }
 
-bool CGraphics_Threaded::LoadPng(CImageInfo &Image, const uint8_t *pData, size_t DataSize, const char *pContextName)
+bool CGraphics_Threaded::LoadImage(CImageInfo &Image, const uint8_t *pData, size_t DataSize, const char *pContextName)
 {
-	CByteBufferReader Reader(pData, DataSize);
 	int PngliteIncompatible;
-	if(!CImageLoader::LoadPng(Reader, pContextName, Image, PngliteIncompatible))
+	if(!CImageLoader::LoadImage(pData, DataSize, pContextName, Image, PngliteIncompatible))
 		return false;
 
 	if(m_WarnPngliteIncompatibleImages && PngliteIncompatible != 0)

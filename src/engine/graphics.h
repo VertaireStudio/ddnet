@@ -281,8 +281,8 @@ public:
 
 	virtual const TTwGraphicsGpuList &GetGpus() const = 0;
 
-	virtual bool LoadPng(CImageInfo &Image, const char *pFilename, int StorageType) = 0;
-	virtual bool LoadPng(CImageInfo &Image, const uint8_t *pData, size_t DataSize, const char *pContextName) = 0;
+	virtual bool LoadImage(CImageInfo &Image, const char *pFilename, int StorageType) = 0;
+	virtual bool LoadImage(CImageInfo &Image, const uint8_t *pData, size_t DataSize, const char *pContextName) = 0;
 
 	virtual bool CheckImageDivisibility(const char *pContextName, CImageInfo &Image, int DivX, int DivY, bool AllowResize) = 0;
 	virtual bool IsImageFormatRgba(const char *pContextName, const CImageInfo &Image) = 0;

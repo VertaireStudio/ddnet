@@ -52,6 +52,60 @@ public:
 
 	static bool SavePng(CByteBufferWriter &Writer, const CImageInfo &Image);
 	static bool SavePng(IOHANDLE File, const char *pFilename, const CImageInfo &Image);
+
+#ifdef CONF_WEBP
+	static bool LoadWebp(const uint8_t *pData, size_t Size, const char *pContextName, CImageInfo &Image);
+	static bool LoadWebp(IOHANDLE File, const char *pFilename, CImageInfo &Image);
+
+	static bool SaveWebp(CByteBufferWriter &Writer, const CImageInfo &Image);
+	static bool SaveWebp(IOHANDLE File, const char *pFilename, const CImageInfo &Image);
+
+	/**
+	 * Saves an image as a lossy WebP.
+	 *
+	 * @Writer The buffer that receives the encoded WebP data.
+	 * @Image The image to encode, in `FORMAT_RGB` or `FORMAT_RGBA` format.
+	 * @Quality The lossy encoding quality, from 0 (worst) to 100 (best).
+	 *
+	 * @return True on success.
+	 */
+	static bool SaveWebpLossy(CByteBufferWriter &Writer, const CImageInfo &Image, int Quality);
+
+	/**
+	 * Detects whether WebP data is lossy (VP8) rather than lossless (VP8L).
+	 *
+	 * @pData WebP data.
+	 * @Size Size of the WebP data.
+	 *
+	 * @return True if the data is a lossy WebP, false for lossless WebP or unrecognized data.
+	 */
+	static bool IsLossyWebp(const uint8_t *pData, size_t Size);
+
+	static bool SaveWebpLossy(IOHANDLE File, const char *pFilename, const CImageInfo &Image, int Quality);
+#endif
+
+	enum EDetectedImageFormat
+	{
+		FORMAT_NONE,
+		FORMAT_PNG,
+		FORMAT_WEBP,
+	};
+
+	/**
+	 * Detects the format of an image from its magic bytes.
+	 *
+	 * @pData Image data.
+	 * @Size Size of the image data.
+	 *
+	 * @return The detected image format, or `FORMAT_NONE` if the format is unrecognized.
+	 */
+	static EDetectedImageFormat DetectImageFormat(const uint8_t *pData, size_t Size);
+
+	static bool LoadImage(const uint8_t *pData, size_t Size, const char *pContextName, CImageInfo &Image, int &PngliteIncompatible);
+	static bool LoadImage(IOHANDLE File, const char *pFilename, CImageInfo &Image, int &PngliteIncompatible);
+
+	static bool SaveImage(CByteBufferWriter &Writer, const char *pFilename, const CImageInfo &Image);
+	static bool SaveImage(IOHANDLE File, const char *pFilename, const CImageInfo &Image);
 };
 
 #endif // ENGINE_GFX_IMAGE_LOADER_H

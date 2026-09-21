@@ -184,7 +184,7 @@ bool CEditor::CallbackSaveImage(const char *pFilename, int StorageType, void *pU
 
 	std::shared_ptr<CEditorImage> pImg = pEditor->Map()->SelectedImage();
 
-	if(CImageLoader::SavePng(pEditor->Storage()->OpenFile(pFilename, IOFLAG_WRITE, StorageType), pFilename, *pImg))
+	if(CImageLoader::SaveImage(pEditor->Storage()->OpenFile(pFilename, IOFLAG_WRITE, StorageType), pFilename, *pImg))
 	{
 		pEditor->OnDialogClose();
 		return true;
@@ -230,7 +230,7 @@ bool CEditor::CallbackCustomEntities(const char *pFilename, int StorageType, voi
 	}
 
 	CImageInfo ImgInfo;
-	if(!pEditor->Graphics()->LoadPng(ImgInfo, pFilename, StorageType))
+	if(!pEditor->Graphics()->LoadImage(ImgInfo, pFilename, StorageType))
 	{
 		pEditor->ShowFileDialogError("Failed to load image from file '%s'.", pFilename);
 		return false;
@@ -2896,6 +2896,22 @@ void CEditor::RenderLayers(CUIRect LayersBox)
 	}
 }
 
+static void TryCacheWebpSource(CEditor *pEditor, std::shared_ptr<CEditorImage> pImg, const char *pFilename, int StorageType)
+{
+	pImg->m_WebpSourceData.clear();
+	unsigned char *pData;
+	unsigned DataSize;
+	if(!pEditor->Storage()->ReadFile(pFilename, StorageType, (void **)&pData, &DataSize))
+	{
+		return;
+	}
+	if(DataSize > 12 && mem_comp((const void *)pData, "RIFF", 4) == 0 && mem_comp(pData + 8, "WEBP", 4) == 0)
+	{
+		pImg->m_WebpSourceData.assign(pData, pData + DataSize);
+	}
+	free(pData);
+}
+
 bool CEditor::ReplaceImage(const char *pFilename, int StorageType, bool CheckDuplicate)
 {
 	// check if we have that image already
@@ -2914,7 +2930,7 @@ bool CEditor::ReplaceImage(const char *pFilename, int StorageType, bool CheckDup
 	}
 
 	CImageInfo ImgInfo;
-	if(!Graphics()->LoadPng(ImgInfo, pFilename, StorageType))
+	if(!Graphics()->LoadImage(ImgInfo, pFilename, StorageType))
 	{
 		ShowFileDialogError("Failed to load image from file '%s'.", pFilename);
 		return false;
@@ -2928,6 +2944,7 @@ bool CEditor::ReplaceImage(const char *pFilename, int StorageType, bool CheckDup
 
 	ConvertToRgba(*pImg);
 	DilateImage(*pImg);
+	TryCacheWebpSource(this, pImg, pFilename, StorageType);
 
 	pImg->m_Automapper.Load(pImg->m_aName);
 	int TextureLoadFlag = Graphics()->TextureLoadFlags();
@@ -2970,7 +2987,7 @@ bool CEditor::AddImage(const char *pFilename, int StorageType, void *pUser)
 	}
 
 	CImageInfo ImgInfo;
-	if(!pEditor->Graphics()->LoadPng(ImgInfo, pFilename, StorageType))
+	if(!pEditor->Graphics()->LoadImage(ImgInfo, pFilename, StorageType))
 	{
 		pEditor->ShowFileDialogError("Failed to load image from file '%s'.", pFilename);
 		return false;
@@ -2983,6 +3000,7 @@ bool CEditor::AddImage(const char *pFilename, int StorageType, void *pUser)
 
 	ConvertToRgba(*pImg);
 	DilateImage(*pImg);
+	TryCacheWebpSource(pEditor, pImg, pFilename, StorageType);
 
 	int TextureLoadFlag = pEditor->Graphics()->TextureLoadFlags();
 	if(pImg->m_Width % 16 != 0 || pImg->m_Height % 16 != 0)

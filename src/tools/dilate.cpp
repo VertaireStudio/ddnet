@@ -13,12 +13,12 @@ static bool DilateFile(const char *pFilename, bool DryRun)
 {
 	CImageInfo Image;
 	int PngliteIncompatible;
-	if(!CImageLoader::LoadPng(io_open(pFilename, IOFLAG_READ), pFilename, Image, PngliteIncompatible))
+	if(!CImageLoader::LoadImage(io_open(pFilename, IOFLAG_READ), pFilename, Image, PngliteIncompatible))
 		return false;
 
 	if(Image.m_Format != CImageInfo::FORMAT_RGBA)
 	{
-		log_error("dilate", "ERROR: only RGBA PNG images are supported");
+		log_error("dilate", "ERROR: only RGBA images are supported");
 		Image.Free();
 		return false;
 	}

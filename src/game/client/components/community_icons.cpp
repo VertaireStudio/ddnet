@@ -67,7 +67,7 @@ const CCommunityIcon *CCommunityIcons::Find(const char *pCommunityId)
 
 bool CCommunityIcons::LoadFile(const char *pPath, int DirType, CImageInfo &Info, CImageInfo &InfoGrayscale, SHA256_DIGEST &Sha256)
 {
-	if(!Graphics()->LoadPng(Info, pPath, DirType))
+	if(!Graphics()->LoadImage(Info, pPath, DirType))
 	{
 		log_error("menus/browser", "Failed to load community icon from '%s'", pPath);
 		return false;

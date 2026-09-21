@@ -19,6 +19,11 @@ static constexpr const char *FILETYPE_EXTENSIONS[] = {
 	".png",
 	".opus"};
 
+static bool IsImageExtension(const char *pFilename)
+{
+	return str_endswith_nocase(pFilename, ".png") || str_endswith_nocase(pFilename, ".webp");
+}
+
 void CFileBrowser::ShowFileDialog(
 	int StorageType, EFileType FileType,
 	const char *pTitle, const char *pButtonText,
@@ -367,10 +372,23 @@ void CFileBrowser::Render()
 		{
 			const int StorageType = m_SelectedFileIndex >= 0 ? m_vpFilteredFileList[m_SelectedFileIndex]->m_StorageType : m_StorageType;
 			char aSaveFilePath[IO_MAX_PATH_LENGTH];
-			str_format(aSaveFilePath, sizeof(aSaveFilePath), "%s/%s", m_pCurrentPath, m_FilenameInput.GetString());
-			if(!str_endswith(aSaveFilePath, FILETYPE_EXTENSIONS[(int)m_FileType]))
+			if(m_SelectedFileIndex >= 0)
 			{
-				str_append(aSaveFilePath, FILETYPE_EXTENSIONS[(int)m_FileType]);
+				// open the selected file with its actual name and extension
+				str_format(aSaveFilePath, sizeof(aSaveFilePath), "%s/%s", m_pCurrentPath, m_vpFilteredFileList[m_SelectedFileIndex]->m_aFilename);
+			}
+			else
+			{
+				str_format(aSaveFilePath, sizeof(aSaveFilePath), "%s/%s", m_pCurrentPath, m_FilenameInput.GetString());
+				if(m_FileType == CFileBrowser::EFileType::IMAGE)
+				{
+					if(!IsImageExtension(aSaveFilePath))
+						str_append(aSaveFilePath, ".png");
+				}
+				else if(!str_endswith(aSaveFilePath, FILETYPE_EXTENSIONS[(int)m_FileType]))
+				{
+					str_append(aSaveFilePath, FILETYPE_EXTENSIONS[(int)m_FileType]);
+				}
 			}
 
 			char aFilename[IO_MAX_PATH_LENGTH];
@@ -497,8 +515,15 @@ bool CFileBrowser::CanPreviewFile() const
 
 void CFileBrowser::UpdateFilePreview()
 {
-	if(m_PreviewState != EPreviewState::UNLOADED ||
-		!str_endswith(m_vpFilteredFileList[m_SelectedFileIndex]->m_aFilename, FILETYPE_EXTENSIONS[(int)m_FileType]))
+	if(m_PreviewState != EPreviewState::UNLOADED)
+	{
+		return;
+	}
+
+	const bool MatchesExtension = m_FileType == CFileBrowser::EFileType::IMAGE
+					      ? IsImageExtension(m_vpFilteredFileList[m_SelectedFileIndex]->m_aFilename)
+					      : str_endswith(m_vpFilteredFileList[m_SelectedFileIndex]->m_aFilename, FILETYPE_EXTENSIONS[(int)m_FileType]) != nullptr;
+	if(!MatchesExtension)
 	{
 		return;
 	}
@@ -508,7 +533,7 @@ void CFileBrowser::UpdateFilePreview()
 		char aImagePath[IO_MAX_PATH_LENGTH];
 		str_format(aImagePath, sizeof(aImagePath), "%s/%s", m_pCurrentPath, m_vpFilteredFileList[m_SelectedFileIndex]->m_aFilename);
 		CImageInfo PreviewImageInfo;
-		if(Graphics()->LoadPng(PreviewImageInfo, aImagePath, m_vpFilteredFileList[m_SelectedFileIndex]->m_StorageType))
+		if(Graphics()->LoadImage(PreviewImageInfo, aImagePath, m_vpFilteredFileList[m_SelectedFileIndex]->m_StorageType))
 		{
 			Graphics()->UnloadTexture(&m_PreviewImage);
 			m_PreviewImageWidth = PreviewImageInfo.m_Width;
@@ -790,7 +815,10 @@ int CFileBrowser::DirectoryListingCallback(const CFsFileInfo *pInfo, int IsDir, 
 	}
 	else
 	{
-		if(!str_endswith(pInfo->m_pName, FILETYPE_EXTENSIONS[(int)pFileBrowser->m_FileType]))
+		const bool MatchesExtension = pFileBrowser->m_FileType == CFileBrowser::EFileType::IMAGE
+						    ? IsImageExtension(pInfo->m_pName)
+						    : str_endswith(pInfo->m_pName, FILETYPE_EXTENSIONS[(int)pFileBrowser->m_FileType]) != nullptr;
+		if(!MatchesExtension)
 		{
 			return 0;
 		}

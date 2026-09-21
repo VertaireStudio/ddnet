@@ -554,6 +554,7 @@ if(UNIX)
 endif()
 find_package(Threads)
 find_package(Wavpack)
+find_package(Webp)
 if(WEBSOCKETS)
   find_package(Websockets)
 else()
@@ -2359,7 +2360,7 @@ set(LIBS
 
 # Targets
 add_library(engine-gfx EXCLUDE_FROM_ALL OBJECT ${ENGINE_GFX})
-target_include_directories(engine-gfx PRIVATE ${PNG_INCLUDE_DIRS})
+target_include_directories(engine-gfx PRIVATE ${PNG_INCLUDE_DIRS} ${WEBP_INCLUDE_DIRS})
 add_library(engine-shared EXCLUDE_FROM_ALL OBJECT ${ENGINE_INTERFACE} ${ENGINE_SHARED} ${ENGINE_UUID_SHARED} ${BASE})
 add_library(game-shared EXCLUDE_FROM_ALL OBJECT ${GAME_SHARED} ${GAME_GENERATED_SHARED})
 # tidy-alphabetical-start
@@ -2752,6 +2753,7 @@ if(CLIENT)
     ${SDL2_LIBRARIES}
     ${VULKAN_LIBRARIES}
     ${WAVPACK_LIBRARIES}
+    ${WEBP_LIBRARIES}
     # tidy-alphabetical-end
 
     # Order of these three is important.
@@ -2848,6 +2850,7 @@ if(CLIENT)
     ${PNG_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${WAVPACK_INCLUDE_DIRS}
+    ${WEBP_INCLUDE_DIRS}
     # tidy-alphabetical-end
 
     ${VULKAN_INCLUDE_DIRS}
@@ -3123,6 +3126,7 @@ if(TOOLS)
     dilate.cpp
     dummy_map.cpp
     map_convert_07.cpp
+    map_convert_imageformat.cpp
     map_diff.cpp
     map_extract.cpp
     map_find_env.cpp
@@ -3145,10 +3149,10 @@ if(TOOLS)
       set(TOOL_DEPS ${DEPS})
       set(TOOL_LIBS ${LIBS})
       unset(EXTRA_TOOL_SRC)
-      if(TOOL MATCHES "^(dilate|map_convert_07|map_optimize|map_extract|map_replace_image)$")
-        list(APPEND TOOL_INCLUDE_DIRS ${PNG_INCLUDE_DIRS})
+      if(TOOL MATCHES "^(dilate|map_convert_07|map_convert_imageformat|map_optimize|map_extract|map_replace_image)$")
+        list(APPEND TOOL_INCLUDE_DIRS ${PNG_INCLUDE_DIRS} ${WEBP_INCLUDE_DIRS})
         list(APPEND TOOL_DEPS $<TARGET_OBJECTS:engine-gfx>)
-        list(APPEND TOOL_LIBS ${PNG_LIBRARIES})
+        list(APPEND TOOL_LIBS ${PNG_LIBRARIES} ${WEBP_LIBRARIES})
       endif()
       if(TOOL MATCHES "^config_")
         list(APPEND EXTRA_TOOL_SRC "src/tools/config_common.h")
@@ -3234,6 +3238,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     git_revision_test.cpp
     hash_test.cpp
     huffman_test.cpp
+    image_loader_test.cpp
     io_test.cpp
     jobs_test.cpp
     json_test.cpp
@@ -3299,7 +3304,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     # tidy-alphabetical-end
     ${DEPS}
   )
-  target_link_libraries(${TARGET_TESTRUNNER} ${PNG_LIBRARIES} ${GTEST_LIBRARIES} ${LIBS_SERVER})
+  target_link_libraries(${TARGET_TESTRUNNER} ${PNG_LIBRARIES} ${WEBP_LIBRARIES} ${GTEST_LIBRARIES} ${LIBS_SERVER})
   target_include_directories(${TARGET_TESTRUNNER} SYSTEM PRIVATE ${GTEST_INCLUDE_DIRS})
 
   list(APPEND TARGETS_OWN ${TARGET_TESTRUNNER})
@@ -3956,6 +3961,9 @@ foreach(target ${TARGETS_OWN})
   endif()
   if(VIDEORECORDER)
     target_compile_definitions(${target} PRIVATE CONF_VIDEORECORDER)
+  endif()
+  if(WEBP_FOUND)
+    target_compile_definitions(${target} PRIVATE CONF_WEBP)
   endif()
   if(ANTIBOT)
     target_compile_definitions(${target} PRIVATE CONF_ANTIBOT)

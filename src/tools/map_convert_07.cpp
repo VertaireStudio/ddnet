@@ -81,7 +81,7 @@ static void *ReplaceImageItem(int Index, CMapItemImage *pImgItem, CMapItemImage 
 
 	CImageInfo ImgInfo;
 	int PngliteIncompatible;
-	if(!CImageLoader::LoadPng(io_open(aStr, IOFLAG_READ), aStr, ImgInfo, PngliteIncompatible))
+	if(!CImageLoader::LoadImage(io_open(aStr, IOFLAG_READ), aStr, ImgInfo, PngliteIncompatible))
 		return pImgItem; // keep as external if we don't have a mapres to replace
 
 	const size_t MaxImageDimension = 1 << 13;
@@ -199,14 +199,23 @@ int main(int argc, const char **argv)
 		int Size = g_DataReader.GetItemSize(Index);
 		Success &= CheckImageDimensions(pItem, Type, pSourceFilename);
 
-		CMapItemImage NewImageItem;
+		CMapItemImage_v2 NewImageItem;
 		if(Type == MAPITEMTYPE_IMAGE)
 		{
+			const CMapItemImage_v2 *pOldImgItem = (CMapItemImage_v2 *)pItem;
 			pItem = ReplaceImageItem(Index, (CMapItemImage *)pItem, &NewImageItem);
 			if(!pItem)
 				return -1;
-			Size = sizeof(CMapItemImage);
-			NewImageItem.m_Version = 1;
+			if(pItem == pOldImgItem && pOldImgItem->m_Version >= 2)
+			{
+				// pass through untouched, e.g. embedded WebP images
+				Size = g_DataReader.GetItemSize(Index);
+			}
+			else
+			{
+				Size = sizeof(CMapItemImage);
+				NewImageItem.m_Version = 1;
+			}
 		}
 		g_DataWriter.AddItem(Type, Id, Size, pItem, &Uuid);
 	}

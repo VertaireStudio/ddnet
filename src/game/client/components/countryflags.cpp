@@ -96,7 +96,7 @@ void CCountryFlags::LoadCountryflagsIndexfile()
 			char aFlagPath[IO_MAX_PATH_LENGTH];
 			CImageInfo ImageInfo;
 			str_format(aFlagPath, sizeof(aFlagPath), "countryflags/%s.png", CountryFlag.m_aCountryCodeString);
-			if(!Graphics()->LoadPng(ImageInfo, aFlagPath, IStorage::TYPE_ALL))
+			if(!Graphics()->LoadImage(ImageInfo, aFlagPath, IStorage::TYPE_ALL))
 			{
 				log_error("countryflags", "Failed to load country flag from '%s'", aFlagPath);
 				continue;

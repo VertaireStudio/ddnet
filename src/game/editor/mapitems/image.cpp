@@ -1,5 +1,9 @@
 #include "image.h"
 
+#include <base/mem.h>
+
+#include <engine/gfx/image_loader.h>
+
 #include <game/mapitems.h>
 
 CEditorImage::CEditorImage(CEditorMap *pMap) :
@@ -55,6 +59,25 @@ void CEditorImage::Free()
 	Graphics()->UnloadTexture(&m_Texture);
 	m_Automapper.Unload();
 	CImageInfo::Free();
+	m_WebpSourceData.clear();
+}
+
+bool CEditorImage::CanEmbedWebpSource() const
+{
+	if(m_WebpSourceData.empty() || m_pData == nullptr || m_Format != CImageInfo::FORMAT_RGBA)
+	{
+		return false;
+	}
+
+	CImageInfo Decoded;
+	if(!CImageLoader::LoadWebp(m_WebpSourceData.data(), m_WebpSourceData.size(), m_aName, Decoded))
+	{
+		return false;
+	}
+
+	const bool Same = Decoded.m_Width == m_Width && Decoded.m_Height == m_Height && Decoded.DataSize() == DataSize() && mem_comp(Decoded.m_pData, m_pData, Decoded.DataSize()) == 0;
+	Decoded.Free();
+	return Same;
 }
 
 CEditorImage &CEditorImage::operator=(CImageInfo &&Other)

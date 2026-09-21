@@ -7,6 +7,7 @@
 #include <base/math.h>
 #include <base/mem.h>
 
+#include <engine/gfx/image_loader.h>
 #include <engine/gfx/image_manipulation.h>
 #include <engine/graphics.h>
 #include <engine/map.h>
@@ -125,7 +126,7 @@ void CMapImages::OnMapLoadImpl(class CLayers *pLayers, IMap *pMap)
 			pName = "(error)";
 		}
 
-		if(pImg->m_Version > 1 && pImg->m_MustBe1 != 1)
+		if(pImg->m_Version > 1 && pImg->m_MustBe1 != CMapItemImageFormat::RGBA && pImg->m_MustBe1 != CMapItemImageFormat::WEBP)
 		{
 			log_error("mapimages", "Failed to load map image %d '%s': invalid map image type.", i, pName);
 			ShowWarning = true;
@@ -148,6 +149,29 @@ void CMapImages::OnMapLoadImpl(class CLayers *pLayers, IMap *pMap)
 			}
 			str_format(aPath, sizeof(aPath), "mapres/%s%s.png", pName, Translated ? "_0.7" : "");
 			m_aTextures[i] = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL, LoadFlag);
+		}
+		else if(pImg->m_Version > 1 && pImg->m_MustBe1 == CMapItemImageFormat::WEBP)
+		{
+#ifdef CONF_WEBP
+			const uint8_t *pData = static_cast<uint8_t *>(pMap->GetData(pImg->m_ImageData));
+			const int DataSize = pMap->GetDataSize(pImg->m_ImageData);
+			CImageInfo ImageInfo;
+			if(pData != nullptr && CImageLoader::LoadWebp(pData, DataSize, pName, ImageInfo))
+			{
+				char aTexName[IO_MAX_PATH_LENGTH];
+				str_format(aTexName, sizeof(aTexName), "embedded: %s", pName);
+				m_aTextures[i] = Graphics()->LoadTextureRaw(ImageInfo, LoadFlag, aTexName);
+			}
+			else
+			{
+				log_error("mapimages", "Failed to load map image %d '%s': failed to decode embedded WebP image.", i, pName);
+				ShowWarning = true;
+			}
+#else
+			log_error("mapimages", "Failed to load map image %d '%s': DDNet was built without libwebp support.", i, pName);
+			ShowWarning = true;
+#endif
+			pMap->UnloadData(pImg->m_ImageData);
 		}
 		else
 		{
@@ -268,20 +292,20 @@ IGraphics::CTextureHandle CMapImages::GetEntities(EMapImageEntityLayerType Entit
 		CImageInfo ImgInfo;
 		char aPath[IO_MAX_PATH_LENGTH];
 		str_format(aPath, sizeof(aPath), "%s/%s.png", m_aEntitiesPath, gs_apModEntitiesNames[EntitiesModType]);
-		Graphics()->LoadPng(ImgInfo, aPath, IStorage::TYPE_ALL);
+		Graphics()->LoadImage(ImgInfo, aPath, IStorage::TYPE_ALL);
 
 		// try as single ddnet replacement
 		if(ImgInfo.m_pData == nullptr && EntitiesModType == MAP_IMAGE_MOD_TYPE_DDNET)
 		{
 			str_format(aPath, sizeof(aPath), "%s.png", m_aEntitiesPath);
-			Graphics()->LoadPng(ImgInfo, aPath, IStorage::TYPE_ALL);
+			Graphics()->LoadImage(ImgInfo, aPath, IStorage::TYPE_ALL);
 		}
 
 		// try default
 		if(ImgInfo.m_pData == nullptr)
 		{
 			str_format(aPath, sizeof(aPath), "editor/entities_clear/%s.png", gs_apModEntitiesNames[EntitiesModType]);
-			Graphics()->LoadPng(ImgInfo, aPath, IStorage::TYPE_ALL);
+			Graphics()->LoadImage(ImgInfo, aPath, IStorage::TYPE_ALL);
 		}
 
 		if(ImgInfo.m_pData != nullptr)

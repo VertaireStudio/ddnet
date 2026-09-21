@@ -3,12 +3,20 @@
 #include <base/dbg.h>
 #include <base/io.h>
 #include <base/log.h>
+#include <base/math.h>
 #include <base/mem.h>
+#include <base/str.h>
 
 #include <png.h>
 
+#ifdef CONF_WEBP
+#include <webp/decode.h>
+#include <webp/encode.h>
+#endif
+
 #include <csetjmp>
 #include <cstdlib>
+#include <algorithm>
 
 bool CByteBufferReader::Read(void *pData, size_t Size)
 {
@@ -404,6 +412,345 @@ bool CImageLoader::SavePng(IOHANDLE File, const char *pFilename, const CImageInf
 	if(!WriteSuccess)
 	{
 		log_error("png", "failed to write PNG data to file. filename='%s'", pFilename);
+	}
+	io_close(File);
+	return WriteSuccess;
+}
+
+#ifdef CONF_WEBP
+bool CImageLoader::LoadWebp(const uint8_t *pData, size_t Size, const char *pContextName, CImageInfo &Image)
+{
+	if(Size < 12)
+	{
+		log_error("webp", "file is too small to be a valid WebP image (context='%s').", pContextName);
+		return false;
+	}
+
+	int Width = 0;
+	int Height = 0;
+	if(!WebPGetInfo(pData, Size, &Width, &Height))
+	{
+		log_error("webp", "failed to parse WebP image header (context='%s').", pContextName);
+		return false;
+	}
+
+	if(Width <= 0 || Height <= 0)
+	{
+		log_error("webp", "image has width (%d) or height (%d) of 0 (context='%s').", Width, Height, pContextName);
+		return false;
+	}
+
+	Image.m_Width = Width;
+	Image.m_Height = Height;
+	Image.m_Format = CImageInfo::FORMAT_RGBA;
+	Image.Allocate();
+
+	if(WebPDecodeRGBAInto(pData, Size, Image.m_pData, Image.DataSize(), Width * 4) == nullptr)
+	{
+		log_error("webp", "failed to decode WebP image (context='%s').", pContextName);
+		Image.Free();
+		return false;
+	}
+
+	return true;
+}
+
+bool CImageLoader::LoadWebp(IOHANDLE File, const char *pFilename, CImageInfo &Image)
+{
+	if(!File)
+	{
+		log_error("webp", "failed to open file for reading. filename='%s'", pFilename);
+		return false;
+	}
+
+	void *pFileData;
+	unsigned FileDataSize;
+	const bool ReadSuccess = io_read_all(File, &pFileData, &FileDataSize);
+	io_close(File);
+	if(!ReadSuccess)
+	{
+		log_error("webp", "failed to read file. filename='%s'", pFilename);
+		return false;
+	}
+
+	const bool LoadResult = CImageLoader::LoadWebp(static_cast<const uint8_t *>(pFileData), FileDataSize, pFilename, Image);
+	free(pFileData);
+	if(!LoadResult)
+	{
+		log_error("webp", "failed to load image from file. filename='%s'", pFilename);
+		return false;
+	}
+
+	return true;
+}
+
+static bool SaveWebpEncode(CByteBufferWriter &Writer, const CImageInfo &Image, WebPConfig Config)
+{
+	WebPPicture Picture;
+	if(!WebPPictureInit(&Picture))
+	{
+		log_error("webp", "libwebp internal failure: failed to initialize picture.");
+		return false;
+	}
+	Picture.width = Image.m_Width;
+	Picture.height = Image.m_Height;
+	Picture.use_argb = 1;
+	WebPMemoryWriter MemoryWriter;
+	WebPMemoryWriterInit(&MemoryWriter);
+	Picture.writer = WebPMemoryWrite;
+	Picture.custom_ptr = &MemoryWriter;
+	const bool ImportSuccess = Image.m_Format == CImageInfo::FORMAT_RGB
+					   ? WebPPictureImportRGB(&Picture, Image.m_pData, Image.m_Width * 3)
+					   : WebPPictureImportRGBA(&Picture, Image.m_pData, Image.m_Width * 4);
+	if(!ImportSuccess || !WebPEncode(&Config, &Picture))
+	{
+		WebPPictureFree(&Picture);
+		WebPMemoryWriterClear(&MemoryWriter);
+		log_error("webp", "libwebp internal failure: failed to encode image.");
+		return false;
+	}
+	WebPPictureFree(&Picture);
+
+	Writer.Write(MemoryWriter.mem, MemoryWriter.size);
+	WebPMemoryWriterClear(&MemoryWriter);
+	return true;
+}
+
+bool CImageLoader::SaveWebp(CByteBufferWriter &Writer, const CImageInfo &Image)
+{
+	switch(Image.m_Format)
+	{
+	case CImageInfo::FORMAT_RGB:
+	case CImageInfo::FORMAT_RGBA:
+		break;
+	default:
+		log_error("webp", "unsupported image format '%s'.", Image.FormatName());
+		return false;
+	}
+
+	WebPConfig Config;
+	if(!WebPConfigInit(&Config))
+	{
+		log_error("webp", "libwebp internal failure: failed to initialize config.");
+		return false;
+	}
+	Config.lossless = 1;
+	Config.exact = 1;
+
+	return SaveWebpEncode(Writer, Image, Config);
+}
+
+bool CImageLoader::SaveWebpLossy(CByteBufferWriter &Writer, const CImageInfo &Image, int Quality)
+{
+	switch(Image.m_Format)
+	{
+	case CImageInfo::FORMAT_RGB:
+	case CImageInfo::FORMAT_RGBA:
+		break;
+	default:
+		log_error("webp", "unsupported image format '%s'.", Image.FormatName());
+		return false;
+	}
+	Quality = std::clamp(Quality, 0, 100);
+
+	WebPConfig Config;
+	if(!WebPConfigInit(&Config))
+	{
+		log_error("webp", "libwebp internal failure: failed to initialize config.");
+		return false;
+	}
+	Config.quality = Quality;
+	Config.alpha_quality = Quality;
+
+	return SaveWebpEncode(Writer, Image, Config);
+}
+
+bool CImageLoader::IsLossyWebp(const uint8_t *pData, size_t Size)
+{
+	if(pData == nullptr || Size < 12 || mem_comp(pData, "RIFF", 4) != 0 || mem_comp(pData + 8, "WEBP", 4) != 0)
+	{
+		return false;
+	}
+	size_t Pos = 12;
+	while(Pos + 8 <= Size)
+	{
+		const uint32_t ChunkSize = pData[Pos + 4] | (pData[Pos + 5] << 8) | (pData[Pos + 6] << 16) | (uint32_t)(pData[Pos + 7] << 24);
+		if(mem_comp(pData + Pos, "VP8 ", 4) == 0)
+		{
+			return true;
+		}
+		if(mem_comp(pData + Pos, "VP8L", 4) == 0)
+		{
+			return false;
+		}
+		const size_t Next = Pos + 8 + ChunkSize + (ChunkSize & 1);
+		if(Next <= Pos)
+		{
+			break;
+		}
+		Pos = Next;
+	}
+	return false;
+}
+
+bool CImageLoader::SaveWebp(IOHANDLE File, const char *pFilename, const CImageInfo &Image)
+{
+	if(!File)
+	{
+		log_error("webp", "failed to open file for writing. filename='%s'", pFilename);
+		return false;
+	}
+
+	CByteBufferWriter Writer;
+	if(!CImageLoader::SaveWebp(Writer, Image))
+	{
+		// error already logged
+		io_close(File);
+		return false;
+	}
+
+	const bool WriteSuccess = io_write(File, Writer.Data(), Writer.Size()) == Writer.Size();
+	if(!WriteSuccess)
+	{
+		log_error("webp", "failed to write WebP data to file. filename='%s'", pFilename);
+	}
+	io_close(File);
+	return WriteSuccess;
+}
+
+bool CImageLoader::SaveWebpLossy(IOHANDLE File, const char *pFilename, const CImageInfo &Image, int Quality)
+{
+	if(!File)
+	{
+		log_error("webp", "failed to open file for writing. filename='%s'", pFilename);
+		return false;
+	}
+
+	CByteBufferWriter Writer;
+	if(!CImageLoader::SaveWebpLossy(Writer, Image, Quality))
+	{
+		// error already logged
+		io_close(File);
+		return false;
+	}
+
+	const bool WriteSuccess = io_write(File, Writer.Data(), Writer.Size()) == Writer.Size();
+	if(!WriteSuccess)
+	{
+		log_error("webp", "failed to write WebP data to file. filename='%s'", pFilename);
+	}
+	io_close(File);
+	return WriteSuccess;
+}
+#endif
+
+CImageLoader::EDetectedImageFormat CImageLoader::DetectImageFormat(const uint8_t *pData, size_t Size)
+{
+	if(Size >= 8 && pData[0] == 0x89 && pData[1] == 'P' && pData[2] == 'N' && pData[3] == 'G' && pData[4] == '\r' && pData[5] == '\n' && pData[6] == 0x1a && pData[7] == '\n')
+	{
+		return FORMAT_PNG;
+	}
+	if(Size >= 12 && mem_comp(pData, "RIFF", 4) == 0 && mem_comp(pData + 8, "WEBP", 4) == 0)
+	{
+		return FORMAT_WEBP;
+	}
+	return FORMAT_NONE;
+}
+
+bool CImageLoader::LoadImage(const uint8_t *pData, size_t Size, const char *pContextName, CImageInfo &Image, int &PngliteIncompatible)
+{
+	switch(DetectImageFormat(pData, Size))
+	{
+	case FORMAT_PNG:
+	{
+		CByteBufferReader Reader(pData, Size);
+		return LoadPng(Reader, pContextName, Image, PngliteIncompatible);
+	}
+	case FORMAT_WEBP:
+#ifdef CONF_WEBP
+		PngliteIncompatible = 0;
+		return LoadWebp(pData, Size, pContextName, Image);
+#else
+		log_error("image", "cannot load WebP image (context='%s'): libwebp support was not compiled in.", pContextName);
+		return false;
+#endif
+	case FORMAT_NONE:
+	default:
+		log_error("image", "unrecognized image format (context='%s').", pContextName);
+		return false;
+	}
+}
+
+bool CImageLoader::LoadImage(IOHANDLE File, const char *pFilename, CImageInfo &Image, int &PngliteIncompatible)
+{
+	if(!File)
+	{
+		log_error("image", "failed to open file for reading. filename='%s'", pFilename);
+		return false;
+	}
+
+	void *pFileData;
+	unsigned FileDataSize;
+	const bool ReadSuccess = io_read_all(File, &pFileData, &FileDataSize);
+	io_close(File);
+	if(!ReadSuccess)
+	{
+		log_error("image", "failed to read file. filename='%s'", pFilename);
+		return false;
+	}
+
+	const bool LoadResult = CImageLoader::LoadImage(static_cast<const uint8_t *>(pFileData), FileDataSize, pFilename, Image, PngliteIncompatible);
+	free(pFileData);
+	if(!LoadResult)
+	{
+		log_error("image", "failed to load image from file. filename='%s'", pFilename);
+		return false;
+	}
+
+	if(Image.m_Format != CImageInfo::FORMAT_RGB && Image.m_Format != CImageInfo::FORMAT_RGBA)
+	{
+		log_error("image", "image has unsupported format. filename='%s' format='%s'", pFilename, Image.FormatName());
+		Image.Free();
+		return false;
+	}
+
+	return true;
+}
+
+bool CImageLoader::SaveImage(CByteBufferWriter &Writer, const char *pFilename, const CImageInfo &Image)
+{
+	if(str_endswith_nocase(pFilename, ".webp"))
+	{
+#ifdef CONF_WEBP
+		return SaveWebp(Writer, Image);
+#else
+		log_error("image", "cannot save WebP image (filename='%s'): libwebp support was not compiled in.", pFilename);
+		return false;
+#endif
+	}
+	return SavePng(Writer, Image);
+}
+
+bool CImageLoader::SaveImage(IOHANDLE File, const char *pFilename, const CImageInfo &Image)
+{
+	if(!File)
+	{
+		log_error("image", "failed to open file for writing. filename='%s'", pFilename);
+		return false;
+	}
+
+	CByteBufferWriter Writer;
+	if(!CImageLoader::SaveImage(Writer, pFilename, Image))
+	{
+		// error already logged
+		io_close(File);
+		return false;
+	}
+
+	const bool WriteSuccess = io_write(File, Writer.Data(), Writer.Size()) == Writer.Size();
+	if(!WriteSuccess)
+	{
+		log_error("image", "failed to write image data to file. filename='%s'", pFilename);
 	}
 	io_close(File);
 	return WriteSuccess;

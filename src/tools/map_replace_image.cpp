@@ -45,7 +45,7 @@ static void *ReplaceImageItem(int Index, CMapItemImage *pImgItem, const char *pI
 
 	CImageInfo ImgInfo;
 	int PngliteIncompatible;
-	if(!CImageLoader::LoadPng(io_open(pImgName, IOFLAG_READ), pImgName, ImgInfo, PngliteIncompatible))
+	if(!CImageLoader::LoadImage(io_open(pImgName, IOFLAG_READ), pImgName, ImgInfo, PngliteIncompatible))
 		return nullptr;
 
 	if(ImgInfo.m_Format != CImageInfo::FORMAT_RGBA)
@@ -123,14 +123,23 @@ int main(int argc, const char **argv)
 
 		int Size = g_DataReader.GetItemSize(Index);
 
-		CMapItemImage NewImageItem;
+		CMapItemImage_v2 NewImageItem;
 		if(Type == MAPITEMTYPE_IMAGE)
 		{
+			const CMapItemImage_v2 *pOldImgItem = (CMapItemImage_v2 *)pItem;
 			pItem = ReplaceImageItem(Index, (CMapItemImage *)pItem, pImageName, pImageFile, &NewImageItem);
 			if(!pItem)
 				return -1;
-			Size = sizeof(CMapItemImage);
-			NewImageItem.m_Version = 1;
+			if(pItem == pOldImgItem && pOldImgItem->m_Version >= 2)
+			{
+				// pass through untouched, e.g. embedded WebP images
+				Size = g_DataReader.GetItemSize(Index);
+			}
+			else
+			{
+				Size = sizeof(CMapItemImage);
+				NewImageItem.m_Version = 1;
+			}
 		}
 
 		Writer.AddItem(Type, Id, Size, pItem, &Uuid);

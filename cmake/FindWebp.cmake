@@ -1,0 +1,32 @@
+if(NOT CMAKE_CROSSCOMPILING)
+  find_package(PkgConfig QUIET)
+  pkg_check_modules(PC_WEBP libwebp)
+endif()
+
+set_extra_dirs_lib(WEBP webp)
+find_library(WEBP_LIBRARY
+  NAMES webp libwebp
+  HINTS ${HINTS_WEBP_LIBDIR} ${PC_WEBP_LIBDIR} ${PC_WEBP_LIBRARY_DIRS}
+  PATHS ${PATHS_WEBP_LIBDIR}
+  ${CROSSCOMPILING_NO_CMAKE_SYSTEM_PATH}
+)
+set_extra_dirs_include(WEBP webp "${WEBP_LIBRARY}")
+find_path(WEBP_INCLUDEDIR webp/decode.h
+  HINTS ${HINTS_WEBP_INCLUDEDIR} ${PC_WEBP_INCLUDEDIR} ${PC_WEBP_INCLUDE_DIRS}
+  PATHS ${PATHS_WEBP_INCLUDEDIR}
+  ${CROSSCOMPILING_NO_CMAKE_SYSTEM_PATH}
+)
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(Webp DEFAULT_MSG WEBP_LIBRARY WEBP_INCLUDEDIR)
+
+mark_as_advanced(WEBP_LIBRARY WEBP_INCLUDEDIR)
+
+if(WEBP_FOUND)
+  is_bundled(WEBP_BUNDLED "${WEBP_LIBRARY}")
+  set(WEBP_LIBRARIES ${WEBP_LIBRARY})
+  set(WEBP_INCLUDE_DIRS ${WEBP_INCLUDEDIR})
+else()
+  set(WEBP_LIBRARIES)
+  set(WEBP_INCLUDE_DIRS)
+endif()

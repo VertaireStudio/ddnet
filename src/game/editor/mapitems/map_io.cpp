@@ -10,6 +10,7 @@
 
 #include <engine/client.h>
 #include <engine/engine.h>
+#include <engine/gfx/image_loader.h>
 #include <engine/gfx/image_manipulation.h>
 #include <engine/graphics.h>
 #include <engine/map.h>
@@ -131,13 +132,15 @@ bool CEditorMap::Save(const char *pFilename, const FErrorHandler &ErrorHandler)
 		// TODO!
 		pImg->AnalyseTileFlags();
 
-		CMapItemImage Item;
+		CMapItemImage_v2 Item;
 		Item.m_Version = 1;
+		Item.m_MustBe1 = CMapItemImageFormat::RGBA;
 
 		Item.m_Width = pImg->m_Width;
 		Item.m_Height = pImg->m_Height;
 		Item.m_External = pImg->m_External;
 		Item.m_ImageName = Writer.AddDataString(pImg->m_aName);
+		int ItemSize = sizeof(CMapItemImage);
 		if(pImg->m_External)
 		{
 			Item.m_ImageData = -1;
@@ -145,9 +148,44 @@ bool CEditorMap::Save(const char *pFilename, const FErrorHandler &ErrorHandler)
 		else
 		{
 			dbg_assert(pImg->m_Format == CImageInfo::FORMAT_RGBA, "Embedded images must be in RGBA format");
-			Item.m_ImageData = Writer.AddData(pImg->DataSize(), pImg->m_pData);
+#ifdef CONF_WEBP
+			if(g_Config.m_EdSaveImagesAsWebp)
+			{
+				if(pImg->CanEmbedWebpSource())
+				{
+					// embed the original source WebP bytes verbatim
+					Item.m_Version = 2;
+					Item.m_MustBe1 = CMapItemImageFormat::WEBP;
+					Item.m_ImageData = Writer.AddData(pImg->m_WebpSourceData.size(), pImg->m_WebpSourceData.data());
+					ItemSize = sizeof(Item);
+				}
+				else
+				{
+					CByteBufferWriter EncodedImage;
+					// a lossy source re-encoded losslessly would bloat the map, so keep lossy sources lossy
+					const bool SourceIsLossy = !pImg->m_WebpSourceData.empty() && CImageLoader::IsLossyWebp(pImg->m_WebpSourceData.data(), pImg->m_WebpSourceData.size());
+					const bool Encoded = SourceIsLossy ? CImageLoader::SaveWebpLossy(EncodedImage, *pImg, 90) : CImageLoader::SaveWebp(EncodedImage, *pImg);
+					if(Encoded)
+					{
+						Item.m_Version = 2;
+						Item.m_MustBe1 = CMapItemImageFormat::WEBP;
+						Item.m_ImageData = Writer.AddData(EncodedImage.Size(), EncodedImage.Data());
+						ItemSize = sizeof(Item);
+					}
+					else
+					{
+						log_error("editor/save", "Failed to encode image '%s' as WebP, saving raw instead.", pImg->m_aName);
+						Item.m_ImageData = Writer.AddData(pImg->DataSize(), pImg->m_pData);
+					}
+				}
+			}
+			else
+#endif
+			{
+				Item.m_ImageData = Writer.AddData(pImg->DataSize(), pImg->m_pData);
+			}
 		}
-		Writer.AddItem(MAPITEMTYPE_IMAGE, i, sizeof(Item), &Item);
+		Writer.AddItem(MAPITEMTYPE_IMAGE, i, ItemSize, &Item);
 	}
 
 	// save sounds
@@ -547,20 +585,23 @@ bool CEditorMap::Load(const char *pFilename, int StorageType, const FErrorHandle
 			else
 				str_copy(pImg->m_aName, pName);
 
-			if(pItem->m_Version > 1 && pItem->m_MustBe1 != 1)
+			const bool UnsupportedFormat = pItem->m_Version > 1 && pItem->m_MustBe1 != CMapItemImageFormat::RGBA && pItem->m_MustBe1 != CMapItemImageFormat::WEBP;
+			if(UnsupportedFormat)
 			{
 				char aBuf[128];
 				str_format(aBuf, sizeof(aBuf), "Error: Unsupported image type of image %d '%s'.", i, pImg->m_aName);
 				ErrorHandler(aBuf);
 			}
 
-			if(pImg->m_External || (pItem->m_Version > 1 && pItem->m_MustBe1 != 1))
+			const bool IsWebpEmbedded = pItem->m_Version > 1 && pItem->m_MustBe1 == CMapItemImageFormat::WEBP;
+
+			if(pImg->m_External || UnsupportedFormat)
 			{
 				char aBuf[IO_MAX_PATH_LENGTH];
 				str_format(aBuf, sizeof(aBuf), "mapres/%s.png", pImg->m_aName);
 
 				// load external
-				if(m_pEditor->Graphics()->LoadPng(*pImg, aBuf, IStorage::TYPE_ALL))
+				if(m_pEditor->Graphics()->LoadImage(*pImg, aBuf, IStorage::TYPE_ALL))
 				{
 					ConvertToRgba(*pImg);
 
@@ -576,6 +617,33 @@ bool CEditorMap::Load(const char *pFilename, int StorageType, const FErrorHandle
 					ErrorHandler(aBuf);
 				}
 			}
+			else if(IsWebpEmbedded)
+			{
+#ifdef CONF_WEBP
+				// decode the embedded WebP image
+				void *pData = pMap->GetData(pItem->m_ImageData);
+				const int DataSize = pMap->GetDataSize(pItem->m_ImageData);
+				if(pData != nullptr && CImageLoader::LoadWebp((const uint8_t *)pData, DataSize, pImg->m_aName, *pImg))
+				{
+					pImg->m_WebpSourceData.assign((const uint8_t *)pData, (const uint8_t *)pData + DataSize);
+
+					int TextureLoadFlag = m_pEditor->Graphics()->TextureLoadFlags();
+					if(pImg->m_Width % 16 != 0 || pImg->m_Height % 16 != 0)
+						TextureLoadFlag = 0;
+					pImg->m_Texture = m_pEditor->Graphics()->LoadTextureRaw(*pImg, TextureLoadFlag, pImg->m_aName);
+				}
+				else
+				{
+					char aBuf[IO_MAX_PATH_LENGTH];
+					str_format(aBuf, sizeof(aBuf), "Error: Failed to load embedded WebP image '%s'.", pImg->m_aName);
+					ErrorHandler(aBuf);
+				}
+#else
+				char aBuf[IO_MAX_PATH_LENGTH];
+				str_format(aBuf, sizeof(aBuf), "Error: Embedded WebP image '%s' requires DDNet to be built with libwebp support.", pImg->m_aName);
+				ErrorHandler(aBuf);
+#endif
+			}
 			else
 			{
 				pImg->m_Width = pItem->m_Width;
@@ -585,7 +653,17 @@ bool CEditorMap::Load(const char *pFilename, int StorageType, const FErrorHandle
 
 				// copy image data
 				void *pData = pMap->GetData(pItem->m_ImageData);
-				mem_copy(pImg->m_pData, pData, pImg->DataSize());
+				const int DataSize = pMap->GetDataSize(pItem->m_ImageData);
+				if(pData == nullptr || (size_t)DataSize < pImg->DataSize())
+				{
+					char aBuf[128];
+					str_format(aBuf, sizeof(aBuf), "Error: Image '%s' has an invalid data size.", pImg->m_aName);
+					ErrorHandler(aBuf);
+				}
+				else
+				{
+					mem_copy(pImg->m_pData, pData, pImg->DataSize());
+				}
 				int TextureLoadFlag = m_pEditor->Graphics()->TextureLoadFlags();
 				if(pImg->m_Width % 16 != 0 || pImg->m_Height % 16 != 0)
 					TextureLoadFlag = 0;

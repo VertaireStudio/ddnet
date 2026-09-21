@@ -389,6 +389,20 @@ public:
 	int m_MustBe1;
 };
 
+/**
+ * Values for `CMapItemImage_v2::m_MustBe1` for images with `version > 1`.
+ *
+ * Old DDNet versions only support RGBA and reject any other value, so a map
+ * that embeds WebP images will show a per-image warning there instead of
+ * loading it. This only affects maps saved by newer versions, not existing
+ * maps.
+ */
+namespace CMapItemImageFormat
+{
+inline constexpr int RGBA = 1;
+inline constexpr int WEBP = 2;
+};
+
 typedef CMapItemImage_v1 CMapItemImage;
 
 class CMapItemGroup_v1

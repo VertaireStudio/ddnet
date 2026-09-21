@@ -467,7 +467,7 @@ void CSkins::LoadSkinDirect(const char *pName)
 	str_format(aPath, sizeof(aPath), "skins/%s.png", pName);
 	CSkinLoadData DefaultSkinData;
 	SkinIt->second->SetState(CSkinContainer::EState::LOADING);
-	if(!Graphics()->LoadPng(DefaultSkinData.m_Info, aPath, SkinIt->second->StorageType()))
+	if(!Graphics()->LoadImage(DefaultSkinData.m_Info, aPath, SkinIt->second->StorageType()))
 	{
 		log_error("skins", "Failed to load PNG of skin '%s' from '%s'", pName, aPath);
 		SkinIt->second->SetState(CSkinContainer::EState::ERROR);
@@ -955,7 +955,7 @@ void CSkins::CSkinLoadJob::Run()
 {
 	char aPath[IO_MAX_PATH_LENGTH];
 	str_format(aPath, sizeof(aPath), "skins/%s.png", m_aName);
-	if(m_pSkins->Graphics()->LoadPng(m_Data.m_Info, aPath, m_StorageType))
+	if(m_pSkins->Graphics()->LoadImage(m_Data.m_Info, aPath, m_StorageType))
 	{
 		if(State() == IJob::STATE_ABORTED)
 		{
@@ -1024,7 +1024,7 @@ void CSkins::CSkinDownloadJob::Run()
 		unsigned PngSize;
 		if(m_pSkins->Storage()->ReadFile(aPathReal, IStorage::TYPE_SAVE, &pPngData, &PngSize))
 		{
-			if(m_pSkins->Graphics()->LoadPng(m_Data.m_Info, static_cast<uint8_t *>(pPngData), PngSize, aPathReal))
+			if(m_pSkins->Graphics()->LoadImage(m_Data.m_Info, static_cast<uint8_t *>(pPngData), PngSize, aPathReal))
 			{
 				if(State() == IJob::STATE_ABORTED)
 				{
@@ -1086,7 +1086,7 @@ void CSkins::CSkinDownloadJob::Run()
 
 	m_Data.m_Info.Free();
 	m_Data.m_InfoGrayscale.Free();
-	const bool Success = m_pSkins->Graphics()->LoadPng(m_Data.m_Info, pResult, ResultSize, aUrl);
+	const bool Success = m_pSkins->Graphics()->LoadImage(m_Data.m_Info, pResult, ResultSize, aUrl);
 	if(Success)
 	{
 		if(State() == IJob::STATE_ABORTED)

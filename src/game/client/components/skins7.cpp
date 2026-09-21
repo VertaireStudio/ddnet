@@ -136,7 +136,7 @@ bool CSkins7::LoadSkinPart(int PartType, const char *pName, int DirType)
 	char aFilename[IO_MAX_PATH_LENGTH];
 	str_format(aFilename, sizeof(aFilename), SKINS_DIR "/%s/%s", CSkins7::ms_apSkinPartNames[PartType], pName);
 	CImageInfo Info;
-	if(!Graphics()->LoadPng(Info, aFilename, DirType))
+	if(!Graphics()->LoadImage(Info, aFilename, DirType))
 	{
 		log_error("skins7", "Failed to load skin part '%s/%s': failed to load PNG file", CSkins7::ms_apSkinPartNames[PartType], pName);
 		return false;
@@ -436,7 +436,7 @@ void CSkins7::LoadXmasHat()
 
 	const char *pFilename = SKINS_DIR "/xmas_hat.png";
 	CImageInfo Info;
-	if(!Graphics()->LoadPng(Info, pFilename, IStorage::TYPE_ALL) ||
+	if(!Graphics()->LoadImage(Info, pFilename, IStorage::TYPE_ALL) ||
 		!Graphics()->IsImageFormatRgba(pFilename, Info) ||
 		!Graphics()->CheckImageDivisibility(pFilename, Info, 1, 4, false))
 	{
@@ -459,7 +459,7 @@ void CSkins7::LoadBotDecoration()
 
 	const char *pFilename = SKINS_DIR "/bot.png";
 	CImageInfo Info;
-	if(!Graphics()->LoadPng(Info, pFilename, IStorage::TYPE_ALL) ||
+	if(!Graphics()->LoadImage(Info, pFilename, IStorage::TYPE_ALL) ||
 		!Graphics()->IsImageFormatRgba(pFilename, Info) ||
 		!Graphics()->CheckImageDivisibility(pFilename, Info, 12, 5, false))
 	{
