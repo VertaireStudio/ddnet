@@ -34,6 +34,13 @@ static constexpr GLenum BUFFER_INIT_INDEX_TARGET = GL_COPY_WRITE_BUFFER;
 static constexpr GLenum BUFFER_INIT_VERTEX_TARGET = GL_COPY_WRITE_BUFFER;
 #endif
 
+static constexpr int GL_QUAD_SSBO_MAX_QUADS = 8192;
+
+// GLES 3.0 has no GL_SHADER_STORAGE_BUFFER; the SSBO path is desktop-only
+#ifndef GL_SHADER_STORAGE_BUFFER
+#define GL_SHADER_STORAGE_BUFFER 0x90D2
+#endif
+
 // ------------ CCommandProcessorFragment_OpenGL3_3
 void CCommandProcessorFragment_OpenGL3_3::UseProgram(CGLSLTWProgram *pProgram)
 {
@@ -118,8 +125,12 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	m_pPrimitiveExProgramTexturedRotationless = new CGLSLPrimitiveExProgram;
 	m_pSpriteProgramMultiple = new CGLSLSpriteMultipleProgram;
 	m_LastProgramId = 0;
+	m_pQuadProgramSSBO = new CGLSLQuadProgram;
+	m_pQuadProgramTexturedSSBO = new CGLSLQuadProgram;
 
 	CGLSLCompiler ShaderCompiler(g_Config.m_GfxGLMajor, g_Config.m_GfxGLMinor, g_Config.m_GfxGLPatch, m_IsOpenGLES, m_OpenGLTextureLodBIAS / 1000.0f);
+
+	m_QuadSSBOSupported = !m_IsOpenGLES && (g_Config.m_GfxGLMajor > 4 || (g_Config.m_GfxGLMajor == 4 && g_Config.m_GfxGLMinor >= 3));
 
 	GLint CapVal;
 	glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &CapVal);
@@ -319,6 +330,47 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 		m_pQuadProgramTextured->m_LocOffsets = m_pQuadProgramTextured->GetUniformLoc("gOffsets");
 		m_pQuadProgramTextured->m_LocQuadOffset = m_pQuadProgramTextured->GetUniformLoc("gQuadOffset");
 	}
+	if(m_QuadSSBOSupported)
+	{
+		{
+			CGLSL VertexShader;
+			CGLSL FragmentShader;
+			ShaderCompiler.AddDefine("TW_QUAD_SSBO", "");
+			VertexShader.LoadShader(&ShaderCompiler, pCommand->m_pStorage, "shader/quad.vert", GL_VERTEX_SHADER);
+			FragmentShader.LoadShader(&ShaderCompiler, pCommand->m_pStorage, "shader/quad.frag", GL_FRAGMENT_SHADER);
+			ShaderCompiler.ClearDefines();
+
+			m_pQuadProgramSSBO->CreateProgram();
+			m_pQuadProgramSSBO->AddShader(&VertexShader);
+			m_pQuadProgramSSBO->AddShader(&FragmentShader);
+			m_pQuadProgramSSBO->LinkProgram();
+
+			UseProgram(m_pQuadProgramSSBO);
+
+			m_pQuadProgramSSBO->m_LocPos = m_pQuadProgramSSBO->GetUniformLoc("gPos");
+			m_pQuadProgramSSBO->m_LocQuadOffset = m_pQuadProgramSSBO->GetUniformLoc("gQuadOffset");
+		}
+		{
+			CGLSL VertexShader;
+			CGLSL FragmentShader;
+			ShaderCompiler.AddDefine("TW_QUAD_SSBO", "");
+			ShaderCompiler.AddDefine("TW_QUAD_TEXTURED", "");
+			VertexShader.LoadShader(&ShaderCompiler, pCommand->m_pStorage, "shader/quad.vert", GL_VERTEX_SHADER);
+			FragmentShader.LoadShader(&ShaderCompiler, pCommand->m_pStorage, "shader/quad.frag", GL_FRAGMENT_SHADER);
+			ShaderCompiler.ClearDefines();
+
+			m_pQuadProgramTexturedSSBO->CreateProgram();
+			m_pQuadProgramTexturedSSBO->AddShader(&VertexShader);
+			m_pQuadProgramTexturedSSBO->AddShader(&FragmentShader);
+			m_pQuadProgramTexturedSSBO->LinkProgram();
+
+			UseProgram(m_pQuadProgramTexturedSSBO);
+
+			m_pQuadProgramTexturedSSBO->m_LocPos = m_pQuadProgramTexturedSSBO->GetUniformLoc("gPos");
+			m_pQuadProgramTexturedSSBO->m_LocTextureSampler = m_pQuadProgramTexturedSSBO->GetUniformLoc("gTextureSampler");
+			m_pQuadProgramTexturedSSBO->m_LocQuadOffset = m_pQuadProgramTexturedSSBO->GetUniformLoc("gQuadOffset");
+		}
+	}
 	{
 		CGLSL VertexShader;
 		CGLSL FragmentShader;
@@ -464,6 +516,14 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 
 	m_CurrentIndicesInBuffer = CCommandBuffer::MAX_VERTICES / 4 * 6;
 
+	if(m_QuadSSBOSupported)
+	{
+		glGenBuffers(1, &m_QuadSSBOBufferId);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_QuadSSBOBufferId);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, GL_QUAD_SSBO_MAX_QUADS * sizeof(SQuadRenderInfo), nullptr, GL_STREAM_DRAW);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	}
+
 	m_vTextures.resize(CCommandBuffer::MAX_TEXTURES);
 
 	m_ClearColor.r = m_ClearColor.g = m_ClearColor.b = -1.f;
@@ -484,6 +544,8 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Shutdown(const SCommand_Shutdown *
 	m_pBorderTileProgramTextured->DeleteProgram();
 	m_pQuadProgram->DeleteProgram();
 	m_pQuadProgramTextured->DeleteProgram();
+	m_pQuadProgramSSBO->DeleteProgram();
+	m_pQuadProgramTexturedSSBO->DeleteProgram();
 	m_pQuadProgramGrouped->DeleteProgram();
 	m_pQuadProgramTexturedGrouped->DeleteProgram();
 	m_pTileProgram->DeleteProgram();
@@ -504,6 +566,8 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Shutdown(const SCommand_Shutdown *
 	delete m_pBorderTileProgramTextured;
 	delete m_pQuadProgram;
 	delete m_pQuadProgramTextured;
+	delete m_pQuadProgramSSBO;
+	delete m_pQuadProgramTexturedSSBO;
 	delete m_pQuadProgramGrouped;
 	delete m_pQuadProgramTexturedGrouped;
 	delete m_pTileProgram;
@@ -520,6 +584,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Shutdown(const SCommand_Shutdown *
 	glBindVertexArray(0);
 	glDeleteBuffers(MAX_STREAM_BUFFER_COUNT, m_aPrimitiveDrawBufferId);
 	glDeleteBuffers(1, &m_QuadDrawIndexBufferId);
+	glDeleteBuffers(1, &m_QuadSSBOBufferId);
 	glDeleteVertexArrays(MAX_STREAM_BUFFER_COUNT, m_aPrimitiveDrawVertexId);
 	glDeleteBuffers(1, &m_PrimitiveDrawBufferIdTex3D);
 	glDeleteVertexArrays(1, &m_PrimitiveDrawVertexIdTex3D);
@@ -1206,11 +1271,11 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadLayer(const CCommandBuff
 	{
 		if(IsTexturedState(pCommand->m_State))
 		{
-			pProgram = m_pQuadProgramTextured;
+			pProgram = m_QuadSSBOSupported ? m_pQuadProgramTexturedSSBO : m_pQuadProgramTextured;
 		}
 		else
 		{
-			pProgram = m_pQuadProgram;
+			pProgram = m_QuadSSBOSupported ? m_pQuadProgramSSBO : m_pQuadProgram;
 		}
 	}
 
@@ -1229,7 +1294,24 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadLayer(const CCommandBuff
 	// the extra offset is not related to the information from the command, but an actual offset in the buffer
 	size_t QuadOffsetExtra = pCommand->m_QuadOffset;
 
-	if(!Grouped)
+	if(!Grouped && m_QuadSSBOSupported)
+	{
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_QuadSSBOBufferId);
+		while(QuadsLeft > 0)
+		{
+			int ActualQuadCount = std::min(QuadsLeft, GL_QUAD_SSBO_MAX_QUADS);
+			// orphan + upload the cluster-local per-quad info (0-based, indexed by gl_VertexID/4 - gQuadOffset)
+			glBufferData(GL_SHADER_STORAGE_BUFFER, ActualQuadCount * sizeof(SQuadRenderInfo), pCommand->m_pQuadInfo + QuadOffset, GL_STREAM_DRAW);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_QuadSSBOBufferId);
+			pProgram->SetUniform(pProgram->m_LocQuadOffset, (int)(QuadOffset + QuadOffsetExtra));
+			glDrawElements(GL_TRIANGLES, ActualQuadCount * 6, GL_UNSIGNED_INT, (void *)((QuadOffset + QuadOffsetExtra) * 6 * sizeof(unsigned int)));
+
+			QuadsLeft -= ActualQuadCount;
+			QuadOffset += (size_t)ActualQuadCount;
+		}
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	}
+	else if(!Grouped)
 	{
 		ColorRGBA aColors[ms_MaxQuadsPossible];
 		vec2 aOffsets[ms_MaxQuadsPossible];

@@ -1194,13 +1194,6 @@ void CRenderLayerQuads::Init()
 			const CQuad *pQuad = &m_pQuads[QuadStart + QuadClusterId];
 			bool IsGrouped = QuadCluster.m_Grouped && pQuad->m_ColorEnv == QuadCluster.m_ColorEnv && pQuad->m_ColorEnvOffset == QuadCluster.m_ColorEnvOffset && pQuad->m_PosEnv == QuadCluster.m_PosEnv && pQuad->m_PosEnvOffset == QuadCluster.m_PosEnvOffset;
 
-			// we are reaching gpu batch limit, here we break and close the QuadCluster if it's ungrouped
-			if(QuadClusterId >= (int)GRAPHICS_MAX_QUADS_RENDER_COUNT)
-			{
-				// expand a cluster, if it's grouped
-				if(!IsGrouped)
-					break;
-			}
 			QuadOffset++;
 			QuadCluster.m_Grouped = IsGrouped;
 		}

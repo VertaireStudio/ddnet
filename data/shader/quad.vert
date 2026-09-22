@@ -9,11 +9,30 @@ uniform mat4x2 gPos;
 #ifdef TW_QUAD_GROUPED
 uniform vec2 gOffsets[1];
 uniform float gRotations[1];
+#define QUAD_OFFSET(I) gOffsets[I]
+#define QUAD_ROTATION(I) gRotations[I]
+#elif defined(TW_QUAD_SSBO)
+uniform int gQuadOffset;
+flat out int QuadIndex;
+struct SQuadEl
+{
+	vec4 gVertColor;
+	vec2 gOffset;
+	float gRotation;
+};
+layout(std430, binding = 7) buffer QuadDyn
+{
+	SQuadEl gUniEls[];
+};
+#define QUAD_OFFSET(I) gUniEls[I].gOffset
+#define QUAD_ROTATION(I) gUniEls[I].gRotation
 #else
 uniform vec2 gOffsets[TW_MAX_QUADS];
 uniform float gRotations[TW_MAX_QUADS];
 uniform int gQuadOffset;
 flat out int QuadIndex;
+#define QUAD_OFFSET(I) gOffsets[I]
+#define QUAD_ROTATION(I) gRotations[I]
 #endif
 
 noperspective out vec4 QuadColor;
@@ -31,15 +50,15 @@ void main()
 #else
 #define TmpQuadIndex 0
 #endif
-	if(gRotations[TmpQuadIndex] != 0.0)
+	if(QUAD_ROTATION(TmpQuadIndex) != 0.0)
 	{
 		float X = FinalPos.x - inVertex.z;
 		float Y = FinalPos.y - inVertex.w;
 		
-		FinalPos.x = X * cos(gRotations[TmpQuadIndex]) - Y * sin(gRotations[TmpQuadIndex]) + inVertex.z;
-		FinalPos.y = X * sin(gRotations[TmpQuadIndex]) + Y * cos(gRotations[TmpQuadIndex]) + inVertex.w;
+		FinalPos.x = X * cos(QUAD_ROTATION(TmpQuadIndex)) - Y * sin(QUAD_ROTATION(TmpQuadIndex)) + inVertex.z;
+		FinalPos.y = X * sin(QUAD_ROTATION(TmpQuadIndex)) + Y * cos(QUAD_ROTATION(TmpQuadIndex)) + inVertex.w;
 	}
-	FinalPos += gOffsets[TmpQuadIndex];
+	FinalPos += QUAD_OFFSET(TmpQuadIndex);
 
 #ifndef TW_QUAD_GROUPED
 	QuadIndex = TmpQuadIndex;

@@ -32,6 +32,8 @@ protected:
 	CGLSLPrimitiveProgram *m_pPrimitiveProgramTextured;
 	CGLSLQuadProgram *m_pQuadProgram;
 	CGLSLQuadProgram *m_pQuadProgramTextured;
+	CGLSLQuadProgram *m_pQuadProgramSSBO;
+	CGLSLQuadProgram *m_pQuadProgramTexturedSSBO;
 	CGLSLQuadProgram *m_pQuadProgramGrouped;
 	CGLSLQuadProgram *m_pQuadProgramTexturedGrouped;
 	CGLSLTextProgram *m_pTextProgram;
@@ -54,6 +56,10 @@ protected:
 
 	TWGLuint m_QuadDrawIndexBufferId;
 	unsigned int m_CurrentIndicesInBuffer;
+
+	// SSBO-backed single-draw quad layers (GL 4.3+, desktop only)
+	bool m_QuadSSBOSupported = false;
+	TWGLuint m_QuadSSBOBufferId = 0;
 
 	void DestroyBufferContainer(int Index, bool DeleteBOs = true);
 

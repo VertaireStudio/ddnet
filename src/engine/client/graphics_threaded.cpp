@@ -1463,8 +1463,8 @@ void CGraphics_Threaded::RenderQuadLayer(int BufferContainerIndex, SQuadRenderIn
 		});
 
 		mem_copy(Cmd.m_pQuadInfo, pQuadInfo, sizeof(SQuadRenderInfo) * QuadNum);
-		m_pCommandBuffer->AddRenderCalls(((QuadNum - 1) / GRAPHICS_MAX_QUADS_RENDER_COUNT) + 1);
-	}
+			m_pCommandBuffer->AddRenderCalls(1);
+		}
 	else
 	{
 		Cmd.m_pQuadInfo = (SQuadRenderInfo *)AllocCommandBufferData(sizeof(SQuadRenderInfo));

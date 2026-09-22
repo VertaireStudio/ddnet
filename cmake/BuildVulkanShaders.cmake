@@ -141,6 +141,13 @@ generate_shader_file("-DTW_QUAD_TEXTURED" "" "quad.vert" "quad_textured.vert.spv
 generate_shader_file("-DTW_QUAD_TEXTURED" "-DTW_QUAD_GROUPED" "quad.frag" "quad_grouped_textured.frag.spv")
 generate_shader_file("-DTW_QUAD_TEXTURED" "-DTW_QUAD_GROUPED" "quad.vert" "quad_grouped_textured.vert.spv")
 
+# Quad layer SSBO variants (single draw per cluster)
+generate_shader_file("-DTW_QUAD_SSBO" "" "quad.frag" "quad_ssbo.frag.spv")
+generate_shader_file("-DTW_QUAD_SSBO" "" "quad.vert" "quad_ssbo.vert.spv")
+
+generate_shader_file("-DTW_QUAD_SSBO" "-DTW_QUAD_TEXTURED" "quad.frag" "quad_textured_ssbo.frag.spv")
+generate_shader_file("-DTW_QUAD_SSBO" "-DTW_QUAD_TEXTURED" "quad.vert" "quad_textured_ssbo.vert.spv")
+
 set(VULKAN_SHADER_FILE_LIST ${VULKAN_SHADER_FILE_LIST} CACHE STRING "Vulkan shader file list" FORCE)
 set(VULKAN_SHADER_OUTPUT_PATHS ${VULKAN_SHADER_OUTPUT_PATHS} CACHE STRING "Vulkan shader output list" FORCE)
 add_custom_target(build_vulkan_shaders DEPENDS ${VULKAN_SHADER_OUTPUT_PATHS})

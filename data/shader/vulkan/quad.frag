@@ -18,11 +18,19 @@ struct SQuadUniformEl {
 };
 
 #ifndef TW_QUAD_GROUPED
+#ifndef TW_QUAD_SSBO
 #define TW_MAX_QUADS 256
+#endif
 
+#ifdef TW_QUAD_SSBO
+layout (std430, set = UBOSetIndex, binding = 1) restrict readonly buffer SOffBO {
+	SQuadUniformEl gUniEls[];
+} gQuadBO;
+#else
 layout (std140, set = UBOSetIndex, binding = 1) uniform SOffBO {
 	uniform SQuadUniformEl gUniEls[TW_MAX_QUADS];
 } gQuadBO;
+#endif
 #else
 #define gQuadBO gPosBO
 #define QuadIndex 0

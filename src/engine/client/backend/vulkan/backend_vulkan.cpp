@@ -510,6 +510,14 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 			SFrameBuffers(Buffer, BufferMem, OffsetInBuffer, Size, UsedSize, pMappedBufferData) {}
 	};
 
+	struct SFrameStorageBuffers : public SFrameBuffers
+	{
+		SDeviceDescriptorSet m_aQuadSSBOSet;
+
+		SFrameStorageBuffers(VkBuffer Buffer, SDeviceMemoryBlock BufferMem, size_t OffsetInBuffer, size_t Size, size_t UsedSize, uint8_t *pMappedBufferData) :
+			SFrameBuffers(Buffer, BufferMem, OffsetInBuffer, Size, UsedSize, pMappedBufferData) {}
+	};
+
 	template<typename TName>
 	struct SStreamMemory
 	{
@@ -1015,6 +1023,7 @@ private:
 
 	VkDescriptorSetLayout m_SpriteMultiUniformDescriptorSetLayout;
 	VkDescriptorSetLayout m_QuadUniformDescriptorSetLayout;
+	VkDescriptorSetLayout m_QuadSSBOUniformDescriptorSetLayout;
 
 	SPipelineContainer m_StandardPipeline;
 	SPipelineContainer m_StandardLinePipeline;
@@ -1027,6 +1036,7 @@ private:
 	SPipelineContainer m_SpriteMultiPipeline;
 	SPipelineContainer m_SpriteMultiPushPipeline;
 	SPipelineContainer m_QuadPipeline;
+	SPipelineContainer m_QuadSSBOPipeline;
 	SPipelineContainer m_QuadGroupedPipeline;
 
 	std::vector<VkPipeline> m_vLastPipeline;
@@ -1041,6 +1051,7 @@ private:
 	SDeviceDescriptorPools m_TextTextureDescrPool;
 
 	std::vector<SDeviceDescriptorPools> m_vUniformBufferDescrPools;
+	std::vector<SDeviceDescriptorPools> m_vQuadSSBODescrPools;
 
 	VkSwapchainKHR m_VKSwapChain = VK_NULL_HANDLE;
 	std::vector<VkImage> m_vSwapChainImages;
@@ -1049,6 +1060,7 @@ private:
 	std::vector<SStreamMemory<SFrameBuffers>> m_vStreamedVertexBuffers;
 	std::vector<SStreamMemory<SFrameUniformBuffers>> m_vStreamedUniformBuffers;
 	std::vector<SStreamMemory<SFrameBuffers>> m_vStreamedIndirectBuffers;
+	std::vector<SStreamMemory<SFrameStorageBuffers>> m_vStreamedQuadSSBObjects;
 	std::vector<std::vector<VkDrawIndexedIndirectCommand>> m_vvIndirectCommandsScratch;
 
 	uint32_t m_CurImageIndex = 0;
@@ -2519,6 +2531,9 @@ protected:
 		// and the indirect buffers
 		for(auto &StreamIndirectBuffer : m_vStreamedIndirectBuffers)
 			UploadStreamedBuffer<FlushForRendering>(StreamIndirectBuffer);
+		// and the quad ssbo buffers
+		for(auto &StreamQuadSSBOBuffer : m_vStreamedQuadSSBObjects)
+			UploadStreamedBuffer<FlushForRendering>(StreamQuadSSBOBuffer);
 
 		UploadStagingBuffers();
 	}
@@ -5118,12 +5133,12 @@ public:
 		return Ret;
 	}
 
-	[[nodiscard]] bool CreateUniformDescriptorSetLayout(VkDescriptorSetLayout &SetLayout, VkShaderStageFlags StageFlags)
+	[[nodiscard]] bool CreateUniformDescriptorSetLayout(VkDescriptorSetLayout &SetLayout, VkShaderStageFlags StageFlags, VkDescriptorType DescriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
 	{
 		VkDescriptorSetLayoutBinding SamplerLayoutBinding{};
 		SamplerLayoutBinding.binding = 1;
 		SamplerLayoutBinding.descriptorCount = 1;
-		SamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		SamplerLayoutBinding.descriptorType = DescriptorType;
 		SamplerLayoutBinding.pImmutableSamplers = nullptr;
 		SamplerLayoutBinding.stageFlags = StageFlags;
 
@@ -5151,13 +5166,19 @@ public:
 		return CreateUniformDescriptorSetLayout(m_QuadUniformDescriptorSetLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 	}
 
+	[[nodiscard]] bool CreateQuadSSBOUniformDescriptorSetLayout()
+	{
+		return CreateUniformDescriptorSetLayout(m_QuadSSBOUniformDescriptorSetLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+	}
+
 	void DestroyUniformDescriptorSetLayouts()
 	{
 		vkDestroyDescriptorSetLayout(m_VKDevice, m_QuadUniformDescriptorSetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(m_VKDevice, m_QuadSSBOUniformDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(m_VKDevice, m_SpriteMultiUniformDescriptorSetLayout, nullptr);
 	}
 
-	[[nodiscard]] bool CreateUniformDescriptorSets(size_t RenderThreadIndex, VkDescriptorSetLayout &SetLayout, SDeviceDescriptorSet *pSets, size_t SetCount, VkBuffer BindBuffer, size_t SingleBufferInstanceSize, VkDeviceSize MemoryOffset)
+	[[nodiscard]] bool CreateUniformDescriptorSets(size_t RenderThreadIndex, VkDescriptorSetLayout &SetLayout, SDeviceDescriptorSet *pSets, size_t SetCount, VkBuffer BindBuffer, size_t SingleBufferInstanceSize, VkDeviceSize MemoryOffset, VkDescriptorType DescriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
 	{
 		VkDescriptorPool RetDescr;
 		if(!GetDescriptorPoolForAlloc(RetDescr, m_vUniformBufferDescrPools[RenderThreadIndex], pSets, SetCount))
@@ -5185,7 +5206,7 @@ public:
 			aDescriptorWrites[0].dstSet = pSets[i].m_Descriptor;
 			aDescriptorWrites[0].dstBinding = 1;
 			aDescriptorWrites[0].dstArrayElement = 0;
-			aDescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			aDescriptorWrites[0].descriptorType = DescriptorType;
 			aDescriptorWrites[0].descriptorCount = 1;
 			aDescriptorWrites[0].pBufferInfo = &BufferInfo;
 
@@ -5319,6 +5340,52 @@ public:
 			for(size_t j = 0; j < VULKAN_BACKEND_CLIP_MODE_COUNT; ++j)
 			{
 				Ret &= CreateQuadGraphicsPipelineImpl<HasSampler>(pVertName, pFragName, m_QuadPipeline, TexMode, EVulkanBackendBlendModes(i), EVulkanBackendClipModes(j));
+			}
+		}
+
+		return Ret;
+	}
+
+	template<bool IsTextured>
+	[[nodiscard]] bool CreateQuadSSBOGraphicsPipelineImpl(const char *pVertName, const char *pFragName, SPipelineContainer &PipeContainer, EVulkanBackendTextureModes TexMode, EVulkanBackendBlendModes BlendMode, EVulkanBackendClipModes DynamicMode)
+	{
+		std::array<VkVertexInputAttributeDescription, IsTextured ? 3 : 2> aAttributeDescriptions = {};
+		aAttributeDescriptions[0] = {0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0};
+		aAttributeDescriptions[1] = {1, 0, VK_FORMAT_R8G8B8A8_UNORM, sizeof(float) * 4};
+		if(IsTextured)
+			aAttributeDescriptions[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 4 + sizeof(uint8_t) * 4};
+
+		std::array<VkDescriptorSetLayout, IsTextured ? 2 : 1> aSetLayouts;
+		if(IsTextured)
+		{
+			aSetLayouts[0] = m_StandardTexturedDescriptorSetLayout;
+			aSetLayouts[1] = m_QuadSSBOUniformDescriptorSetLayout;
+		}
+		else
+		{
+			aSetLayouts[0] = m_QuadSSBOUniformDescriptorSetLayout;
+		}
+
+		uint32_t PushConstantSize = sizeof(SUniformQuadGPos);
+
+		std::array<VkPushConstantRange, 1> aPushConstants{};
+		aPushConstants[0] = {VK_SHADER_STAGE_VERTEX_BIT, 0, PushConstantSize};
+
+		return CreateGraphicsPipeline<true>(pVertName, pFragName, PipeContainer, sizeof(float) * 4 + sizeof(uint8_t) * 4 + (IsTextured ? (sizeof(float) * 2) : 0), aAttributeDescriptions, aSetLayouts, aPushConstants, TexMode, BlendMode, DynamicMode);
+	}
+
+	template<bool HasSampler>
+	[[nodiscard]] bool CreateQuadSSBOGraphicsPipeline(const char *pVertName, const char *pFragName)
+	{
+		bool Ret = true;
+
+		EVulkanBackendTextureModes TexMode = HasSampler ? VULKAN_BACKEND_TEXTURE_MODE_TEXTURED : VULKAN_BACKEND_TEXTURE_MODE_NOT_TEXTURED;
+
+		for(size_t i = 0; i < VULKAN_BACKEND_BLEND_MODE_COUNT; ++i)
+		{
+			for(size_t j = 0; j < VULKAN_BACKEND_CLIP_MODE_COUNT; ++j)
+			{
+				Ret &= CreateQuadSSBOGraphicsPipelineImpl<HasSampler>(pVertName, pFragName, m_QuadSSBOPipeline, TexMode, EVulkanBackendBlendModes(i), EVulkanBackendClipModes(j));
 			}
 		}
 
@@ -5541,6 +5608,15 @@ public:
 		}
 	}
 
+	void DestroyQuadSSBOBufferOfFrame(size_t ImageIndex, SFrameStorageBuffers &Buffer)
+	{
+		CleanBufferPair(ImageIndex, Buffer.m_Buffer, Buffer.m_BufferMem);
+		if(Buffer.m_aQuadSSBOSet.m_Descriptor != VK_NULL_HANDLE)
+		{
+			DestroyUniformDescriptorSets(&Buffer.m_aQuadSSBOSet, 1);
+		}
+	}
+
 	/*************
 	 * SWAP CHAIN
 	 **************/
@@ -5558,6 +5634,7 @@ public:
 		m_SpriteMultiPipeline.Destroy(m_VKDevice);
 		m_SpriteMultiPushPipeline.Destroy(m_VKDevice);
 		m_QuadPipeline.Destroy(m_VKDevice);
+		m_QuadSSBOPipeline.Destroy(m_VKDevice);
 		m_QuadGroupedPipeline.Destroy(m_VKDevice);
 
 		DestroyFramebuffers();
@@ -5610,10 +5687,12 @@ public:
 			m_vStreamedVertexBuffers[i].Destroy([&](size_t ImageIndex, SFrameBuffers &Buffer) { DestroyBufferOfFrame(ImageIndex, Buffer); });
 			m_vStreamedUniformBuffers[i].Destroy([&](size_t ImageIndex, SFrameUniformBuffers &Buffer) { DestroyUniBufferOfFrame(ImageIndex, Buffer); });
 			m_vStreamedIndirectBuffers[i].Destroy([&](size_t ImageIndex, SFrameBuffers &Buffer) { DestroyBufferOfFrame(ImageIndex, Buffer); });
+			m_vStreamedQuadSSBObjects[i].Destroy([&](size_t ImageIndex, SFrameStorageBuffers &Buffer) { DestroyQuadSSBOBufferOfFrame(ImageIndex, Buffer); });
 		}
 		m_vStreamedVertexBuffers.clear();
 		m_vStreamedUniformBuffers.clear();
 		m_vStreamedIndirectBuffers.clear();
+		m_vStreamedQuadSSBObjects.clear();
 		m_vvIndirectCommandsScratch.clear();
 
 		for(size_t i = 0; i < SwapchainCount; ++i)
@@ -5882,12 +5961,23 @@ public:
 			UniformBufferDescrPool.m_DefaultAllocSize = 512;
 		}
 
+		m_vQuadSSBODescrPools.resize(m_ThreadCount);
+		for(auto &QuadSSBODescrPool : m_vQuadSSBODescrPools)
+		{
+			QuadSSBODescrPool.m_IsUniformPool = true;
+			QuadSSBODescrPool.m_DefaultAllocSize = 512;
+		}
+
 		bool Success = true;
 		Success &= AllocateDescriptorPool(m_StandardTextureDescrPool, CCommandBuffer::MAX_TEXTURES);
 		Success &= AllocateDescriptorPool(m_TextTextureDescrPool, 8);
 		for(auto &UniformBufferDescrPool : m_vUniformBufferDescrPools)
 		{
 			Success &= AllocateDescriptorPool(UniformBufferDescrPool, 64);
+		}
+		for(auto &QuadSSBODescrPool : m_vQuadSSBODescrPools)
+		{
+			Success &= AllocateDescriptorPool(QuadSSBODescrPool, 64);
 		}
 		return Success;
 	}
@@ -5905,6 +5995,13 @@ public:
 				vkDestroyDescriptorPool(m_VKDevice, DescrPool.m_Pool, nullptr);
 		}
 		m_vUniformBufferDescrPools.clear();
+
+		for(auto &QuadSSBODescrPool : m_vQuadSSBODescrPools)
+		{
+			for(auto &DescrPool : QuadSSBODescrPool.m_vPools)
+				vkDestroyDescriptorPool(m_VKDevice, DescrPool.m_Pool, nullptr);
+		}
+		m_vQuadSSBODescrPools.clear();
 	}
 
 	[[nodiscard]] bool GetDescriptorPoolForAlloc(VkDescriptorPool &RetDescr, SDeviceDescriptorPools &DescriptorPools, SDeviceDescriptorSet *pSets, size_t AllocNum)
@@ -6250,6 +6347,12 @@ public:
 		if(!CreateQuadGroupedGraphicsPipeline<true>("shader/vulkan/quad_grouped_textured.vert.spv", "shader/vulkan/quad_grouped_textured.frag.spv"))
 			return -1;
 
+		if(!CreateQuadSSBOGraphicsPipeline<false>("shader/vulkan/quad_ssbo.vert.spv", "shader/vulkan/quad_ssbo.frag.spv"))
+			return -1;
+
+		if(!CreateQuadSSBOGraphicsPipeline<true>("shader/vulkan/quad_textured_ssbo.vert.spv", "shader/vulkan/quad_textured_ssbo.frag.spv"))
+			return -1;
+
 		m_SwapchainCreated = true;
 		return 0;
 	}
@@ -6269,6 +6372,9 @@ public:
 				return -1;
 
 			if(!CreateQuadUniformDescriptorSetLayout())
+				return -1;
+
+			if(!CreateQuadSSBOUniformDescriptorSetLayout())
 				return -1;
 
 			VkSwapchainKHR OldSwapChain = VK_NULL_HANDLE;
@@ -6300,12 +6406,14 @@ public:
 		m_vStreamedVertexBuffers.resize(m_ThreadCount);
 		m_vStreamedUniformBuffers.resize(m_ThreadCount);
 		m_vStreamedIndirectBuffers.resize(m_ThreadCount);
+		m_vStreamedQuadSSBObjects.resize(m_ThreadCount);
 		m_vvIndirectCommandsScratch.resize(m_ThreadCount);
 		for(size_t i = 0; i < m_ThreadCount; ++i)
 		{
 			m_vStreamedVertexBuffers[i].Init(m_SwapChainImageCount);
 			m_vStreamedUniformBuffers[i].Init(m_SwapChainImageCount);
 			m_vStreamedIndirectBuffers[i].Init(m_SwapChainImageCount);
+			m_vStreamedQuadSSBObjects[i].Init(m_SwapChainImageCount);
 		}
 
 		m_vLastPipeline.resize(m_ThreadCount, VK_NULL_HANDLE);
@@ -6559,6 +6667,59 @@ public:
 	[[nodiscard]] bool GetUniformBufferObject(size_t RenderThreadIndex, bool RequiresSharedStagesDescriptor, SDeviceDescriptorSet &DescrSet, size_t ParticleCount, const void *pData, size_t DataSize)
 	{
 		return GetUniformBufferObjectImpl<IGraphics::SRenderSpriteInfo, 512, 128>(RenderThreadIndex, RequiresSharedStagesDescriptor, m_vStreamedUniformBuffers[RenderThreadIndex], DescrSet, pData, DataSize);
+	}
+
+	static constexpr size_t VULKAN_QUAD_SSBO_MAX_QUADS = 8192;
+
+	[[nodiscard]] bool CreateQuadSSBODescriptorSet(size_t RenderThreadIndex, SDeviceDescriptorSet *pSet, VkBuffer BindBuffer, VkDeviceSize MemoryOffset, VkDeviceSize Range)
+	{
+		VkDescriptorPool RetDescr;
+		if(!GetDescriptorPoolForAlloc(RetDescr, m_vQuadSSBODescrPools[RenderThreadIndex], pSet, 1))
+			return false;
+		VkDescriptorSetAllocateInfo DesAllocInfo{};
+		DesAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		DesAllocInfo.descriptorSetCount = 1;
+		DesAllocInfo.pSetLayouts = &m_QuadSSBOUniformDescriptorSetLayout;
+		DesAllocInfo.descriptorPool = pSet->m_pPools->m_vPools[pSet->m_PoolIndex].m_Pool;
+		if(vkAllocateDescriptorSets(m_VKDevice, &DesAllocInfo, &pSet->m_Descriptor) != VK_SUCCESS)
+		{
+			return false;
+		}
+
+		VkDescriptorBufferInfo BufferInfo{};
+		BufferInfo.buffer = BindBuffer;
+		BufferInfo.offset = MemoryOffset;
+		BufferInfo.range = Range;
+
+		std::array<VkWriteDescriptorSet, 1> aDescriptorWrites{};
+		aDescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		aDescriptorWrites[0].dstSet = pSet->m_Descriptor;
+		aDescriptorWrites[0].dstBinding = 1;
+		aDescriptorWrites[0].dstArrayElement = 0;
+		aDescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		aDescriptorWrites[0].descriptorCount = 1;
+		aDescriptorWrites[0].pBufferInfo = &BufferInfo;
+
+		vkUpdateDescriptorSets(m_VKDevice, static_cast<uint32_t>(aDescriptorWrites.size()), aDescriptorWrites.data(), 0, nullptr);
+		return true;
+	}
+
+	[[nodiscard]] bool GetQuadSSBObject(size_t RenderThreadIndex, SDeviceDescriptorSet &DescrSet, const void *pData, size_t DataSize)
+	{
+		VkBuffer NewBuffer;
+		SDeviceMemoryBlock NewBufferMem;
+		size_t BufferOffset;
+		SFrameStorageBuffers *pMem;
+		if(!CreateStreamBuffer<SFrameStorageBuffers, SQuadRenderInfo, VULKAN_QUAD_SSBO_MAX_QUADS, 1, false>(
+			   pMem,
+			   [this, RenderThreadIndex](SFrameBuffers &Mem, VkBuffer Buffer, VkDeviceSize MemOffset) {
+				   return CreateQuadSSBODescriptorSet(RenderThreadIndex, &((SFrameStorageBuffers *)(&Mem))->m_aQuadSSBOSet, Buffer, MemOffset, VULKAN_QUAD_SSBO_MAX_QUADS * sizeof(SQuadRenderInfo));
+			   },
+			   m_vStreamedQuadSSBObjects[RenderThreadIndex], VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, NewBuffer, NewBufferMem, BufferOffset, pData, DataSize))
+			return false;
+
+		DescrSet = pMem->m_aQuadSSBOSet;
+		return true;
 	}
 
 	[[nodiscard]] bool CreateIndexBuffer(void *pData, size_t DataSize, VkBuffer &Buffer, SDeviceMemoryBlock &Memory)
@@ -7268,7 +7429,7 @@ public:
 
 		ExecBuffer.m_IndexBuffer = m_RenderIndexBuffer;
 
-		ExecBuffer.m_EstimatedRenderCallCount = ((pCommand->m_QuadNum - 1) / GRAPHICS_MAX_QUADS_RENDER_COUNT) + 1;
+		ExecBuffer.m_EstimatedRenderCallCount = ((pCommand->m_QuadNum - 1) / VULKAN_QUAD_SSBO_MAX_QUADS) + 1;
 
 		ExecBufferFillDynamicStates(pCommand->m_State, ExecBuffer);
 	}
@@ -7285,8 +7446,8 @@ public:
 		size_t DynamicIndex;
 		size_t AddressModeIndex;
 		GetStateIndices(ExecBuffer, pCommand->m_State, IsTextured, BlendModeIndex, DynamicIndex, AddressModeIndex);
-		auto &PipeLayout = GetPipeLayout(CanBeGrouped ? m_QuadGroupedPipeline : m_QuadPipeline, IsTextured, BlendModeIndex, DynamicIndex);
-		auto &PipeLine = GetPipeline(CanBeGrouped ? m_QuadGroupedPipeline : m_QuadPipeline, IsTextured, BlendModeIndex, DynamicIndex);
+		auto &PipeLayout = GetPipeLayout(CanBeGrouped ? m_QuadGroupedPipeline : m_QuadSSBOPipeline, IsTextured, BlendModeIndex, DynamicIndex);
+		auto &PipeLine = GetPipeline(CanBeGrouped ? m_QuadGroupedPipeline : m_QuadSSBOPipeline, IsTextured, BlendModeIndex, DynamicIndex);
 
 		VkCommandBuffer *pCommandBuffer;
 		if(!GetGraphicCommandBuffer(pCommandBuffer, ExecBuffer.m_ThreadIndex))
@@ -7330,15 +7491,15 @@ public:
 			size_t RenderOffset = 0;
 			while(DrawCount > 0)
 			{
-				uint32_t RealDrawCount = (DrawCount > GRAPHICS_MAX_QUADS_RENDER_COUNT ? GRAPHICS_MAX_QUADS_RENDER_COUNT : DrawCount);
+				uint32_t RealDrawCount = (DrawCount > VULKAN_QUAD_SSBO_MAX_QUADS ? VULKAN_QUAD_SSBO_MAX_QUADS : DrawCount);
 				VkDeviceSize IndexOffset = (VkDeviceSize)((ptrdiff_t)(pCommand->m_QuadOffset + RenderOffset) * 6);
 
-				// create uniform buffer
-				SDeviceDescriptorSet UniDescrSet;
-				if(!GetUniformBufferObject(ExecBuffer.m_ThreadIndex, true, UniDescrSet, RealDrawCount, (const float *)(pCommand->m_pQuadInfo + RenderOffset), RealDrawCount * sizeof(SQuadRenderInfo)))
+				// create ssbo with the per-quad render info, cluster-local (0-based), indexed by gl_VertexIndex/4 - gQuadOffset
+				SDeviceDescriptorSet SSBODescrSet;
+				if(!GetQuadSSBObject(ExecBuffer.m_ThreadIndex, SSBODescrSet, pCommand->m_pQuadInfo + RenderOffset, RealDrawCount * sizeof(SQuadRenderInfo)))
 					return false;
 
-				vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PipeLayout, IsTextured ? 1 : 0, 1, &UniDescrSet.m_Descriptor, 0, nullptr);
+				vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PipeLayout, IsTextured ? 1 : 0, 1, &SSBODescrSet.m_Descriptor, 0, nullptr);
 				if(RenderOffset > 0)
 				{
 					int32_t QuadOffset = pCommand->m_QuadOffset + RenderOffset;
