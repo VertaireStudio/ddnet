@@ -398,6 +398,7 @@ static CCommandBuffer::SCommand_Texture_Create LoadTextureCreateCommand(int Text
 	Cmd.m_Height = Height;
 
 	Cmd.m_Flags = 0;
+	Cmd.m_Compressed = false;
 	if((Flags & IGraphics::TEXLOAD_TO_2D_ARRAY_TEXTURE) != 0)
 		Cmd.m_Flags |= TextureFlag::TO_2D_ARRAY_TEXTURE;
 	if((Flags & IGraphics::TEXLOAD_TO_3D_TEXTURE) != 0)
