@@ -1048,6 +1048,8 @@ private:
 
 	std::vector<SStreamMemory<SFrameBuffers>> m_vStreamedVertexBuffers;
 	std::vector<SStreamMemory<SFrameUniformBuffers>> m_vStreamedUniformBuffers;
+	std::vector<SStreamMemory<SFrameBuffers>> m_vStreamedIndirectBuffers;
+	std::vector<std::vector<VkDrawIndexedIndirectCommand>> m_vvIndirectCommandsScratch;
 
 	uint32_t m_CurImageIndex = 0;
 
@@ -2514,6 +2516,9 @@ protected:
 		// now the buffer objects
 		for(auto &StreamUniformBuffer : m_vStreamedUniformBuffers)
 			UploadStreamedBuffer<FlushForRendering>(StreamUniformBuffer);
+		// and the indirect buffers
+		for(auto &StreamIndirectBuffer : m_vStreamedIndirectBuffers)
+			UploadStreamedBuffer<FlushForRendering>(StreamIndirectBuffer);
 
 		UploadStagingBuffers();
 	}
@@ -3408,7 +3413,7 @@ protected:
 
 		ExecBuffer.m_IndexBuffer = m_RenderIndexBuffer;
 
-		ExecBuffer.m_EstimatedRenderCallCount = DrawCalls;
+		ExecBuffer.m_EstimatedRenderCallCount = 1;
 
 		ExecBufferFillDynamicStates(State, ExecBuffer);
 	}
@@ -3462,11 +3467,14 @@ protected:
 
 		size_t DrawCount = IndicesDrawNum;
 		vkCmdBindIndexBuffer(CommandBuffer, ExecBuffer.m_IndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		for(size_t i = 0; i < DrawCount; ++i)
+		if(DrawCount > 0)
 		{
-			VkDeviceSize IndexOffset = (VkDeviceSize)((ptrdiff_t)pIndicesOffsets[i] / sizeof(uint32_t));
+			VkBuffer IndirectBuffer;
+			VkDeviceSize IndirectBufferOffset;
+			if(!GetStreamedIndirectBuffer(ExecBuffer.m_ThreadIndex, IndirectBuffer, IndirectBufferOffset, DrawCount, pIndicesOffsets, pDrawCount))
+				return false;
 
-			vkCmdDrawIndexed(CommandBuffer, static_cast<uint32_t>(pDrawCount[i]), 1, IndexOffset, 0, 0);
+			vkCmdDrawIndexedIndirect(CommandBuffer, IndirectBuffer, IndirectBufferOffset, static_cast<uint32_t>(DrawCount), sizeof(VkDrawIndexedIndirectCommand));
 		}
 
 		return true;
@@ -5601,9 +5609,12 @@ public:
 		{
 			m_vStreamedVertexBuffers[i].Destroy([&](size_t ImageIndex, SFrameBuffers &Buffer) { DestroyBufferOfFrame(ImageIndex, Buffer); });
 			m_vStreamedUniformBuffers[i].Destroy([&](size_t ImageIndex, SFrameUniformBuffers &Buffer) { DestroyUniBufferOfFrame(ImageIndex, Buffer); });
+			m_vStreamedIndirectBuffers[i].Destroy([&](size_t ImageIndex, SFrameBuffers &Buffer) { DestroyBufferOfFrame(ImageIndex, Buffer); });
 		}
 		m_vStreamedVertexBuffers.clear();
 		m_vStreamedUniformBuffers.clear();
+		m_vStreamedIndirectBuffers.clear();
+		m_vvIndirectCommandsScratch.clear();
 
 		for(size_t i = 0; i < SwapchainCount; ++i)
 		{
@@ -6288,10 +6299,13 @@ public:
 
 		m_vStreamedVertexBuffers.resize(m_ThreadCount);
 		m_vStreamedUniformBuffers.resize(m_ThreadCount);
+		m_vStreamedIndirectBuffers.resize(m_ThreadCount);
+		m_vvIndirectCommandsScratch.resize(m_ThreadCount);
 		for(size_t i = 0; i < m_ThreadCount; ++i)
 		{
 			m_vStreamedVertexBuffers[i].Init(m_SwapChainImageCount);
 			m_vStreamedUniformBuffers[i].Init(m_SwapChainImageCount);
+			m_vStreamedIndirectBuffers[i].Init(m_SwapChainImageCount);
 		}
 
 		m_vLastPipeline.resize(m_ThreadCount, VK_NULL_HANDLE);
@@ -6497,6 +6511,26 @@ public:
 		SFrameBuffers *pStreamBuffer;
 		return CreateStreamBuffer<SFrameBuffers, GL_SVertexTex3DStream, CCommandBuffer::MAX_VERTICES * 2, 1, false>(
 			pStreamBuffer, [](SFrameBuffers &, VkBuffer, VkDeviceSize) { return true; }, m_vStreamedVertexBuffers[RenderThreadIndex], VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, NewBuffer, NewBufferMem, BufferOffset, pData, DataSize);
+	}
+
+	// Copies draw ranges into a per-frame indirect buffer so tile rows can be drawn with one vkCmdDrawIndexedIndirect.
+	[[nodiscard]] bool GetStreamedIndirectBuffer(size_t RenderThreadIndex, VkBuffer &NewBuffer, VkDeviceSize &BufferOffset, size_t DrawCount, char *const *pIndicesOffsets, const unsigned int *pDrawCount)
+	{
+		auto &Scratch = m_vvIndirectCommandsScratch[RenderThreadIndex];
+		Scratch.resize(DrawCount);
+		for(size_t i = 0; i < DrawCount; ++i)
+		{
+			Scratch[i].indexCount = pDrawCount[i];
+			Scratch[i].instanceCount = 1;
+			Scratch[i].firstIndex = (uint32_t)((ptrdiff_t)pIndicesOffsets[i] / sizeof(uint32_t));
+			Scratch[i].vertexOffset = 0;
+			Scratch[i].firstInstance = 0;
+		}
+
+		SDeviceMemoryBlock NewBufferMem;
+		SFrameBuffers *pStreamBuffer;
+		return CreateStreamBuffer<SFrameBuffers, VkDrawIndexedIndirectCommand, 1024, 1, false>(
+			pStreamBuffer, [](SFrameBuffers &, VkBuffer, VkDeviceSize) { return true; }, m_vStreamedIndirectBuffers[RenderThreadIndex], VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, NewBuffer, NewBufferMem, BufferOffset, Scratch.data(), DrawCount * sizeof(VkDrawIndexedIndirectCommand));
 	}
 
 	template<typename TName, size_t InstanceMaxParticleCount, size_t MaxInstances>

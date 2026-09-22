@@ -223,6 +223,10 @@ protected:
 	void RenderTileBorder(const ColorRGBA &Color, int BorderX0, int BorderY0, int BorderX1, int BorderY1, CTileLayerVisuals *pTileLayerVisuals);
 	void RenderKillTileBorder(const ColorRGBA &Color);
 
+	// reusable per-frame buffers for the sliced tile path, avoids per-frame heap allocations
+	std::vector<offset_ptr_size> m_vIndexOffsets;
+	std::vector<unsigned int> m_vDrawCounts;
+
 	std::optional<CRenderLayerTile::CTileLayerVisuals> m_VisualTiles;
 	CMapItemLayerTilemap *m_pLayerTilemap;
 	ColorRGBA m_Color;

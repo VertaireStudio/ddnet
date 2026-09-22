@@ -1164,10 +1164,14 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTileLayer(const CCommandBuff
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_QuadDrawIndexBufferId);
 		BufferContainer.m_LastIndexBufferBound = m_QuadDrawIndexBufferId;
 	}
+#if defined(CONF_BACKEND_OPENGL_ES) || defined(CONF_BACKEND_OPENGL_ES3)
 	for(int i = 0; i < pCommand->m_IndicesDrawNum; ++i)
 	{
 		glDrawElements(GL_TRIANGLES, pCommand->m_pDrawCount[i], GL_UNSIGNED_INT, pCommand->m_pIndicesOffsets[i]);
 	}
+#else
+	glMultiDrawElements(GL_TRIANGLES, (const GLsizei *)(const void *)pCommand->m_pDrawCount, GL_UNSIGNED_INT, (const void *const *)pCommand->m_pIndicesOffsets, pCommand->m_IndicesDrawNum);
+#endif
 }
 
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadLayer(const CCommandBuffer::SCommand_RenderQuadLayer *pCommand, bool Grouped)

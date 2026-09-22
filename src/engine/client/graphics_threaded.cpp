@@ -1418,7 +1418,7 @@ void CGraphics_Threaded::RenderTileLayer(int BufferContainerIndex, const ColorRG
 	mem_copy(Cmd.m_pIndicesOffsets, pOffsets, sizeof(char *) * NumIndicesOffset);
 	mem_copy(Cmd.m_pDrawCount, pIndicedVertexDrawNum, sizeof(unsigned int) * NumIndicesOffset);
 
-	m_pCommandBuffer->AddRenderCalls(NumIndicesOffset);
+	m_pCommandBuffer->AddRenderCalls(1);
 	// todo max indices group check!!
 }
 

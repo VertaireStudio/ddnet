@@ -344,14 +344,11 @@ void CRenderLayerTile::RenderTileLayer(const ColorRGBA &Color, const CRenderLaye
 			// render slices of rows
 			else
 			{
-				// create the indice buffers we want to draw
-				std::vector<char *> vpIndexOffsets;
-				std::vector<unsigned int> vDrawCounts;
-
-				unsigned long long Reserve = Y1 - Y0 + 1;
-
-				vpIndexOffsets.reserve(Reserve);
-				vDrawCounts.reserve(Reserve);
+				// reusable buffers to avoid per-frame heap allocations
+				m_vIndexOffsets.clear();
+				m_vDrawCounts.clear();
+				m_vIndexOffsets.reserve(Y1 - Y0 + 1);
+				m_vDrawCounts.reserve(Y1 - Y0 + 1);
 				for(size_t RowIndex = Y0; RowIndex < Y1; ++RowIndex)
 				{
 					size_t StartIndex = RowIndex * Visuals.m_Width + X0;
@@ -363,14 +360,14 @@ void CRenderLayerTile::RenderTileLayer(const ColorRGBA &Color, const CRenderLaye
 
 					if(NumVertices)
 					{
-						vpIndexOffsets.push_back((offset_ptr_size)Start.IndexBufferByteOffset());
-						vDrawCounts.push_back(NumVertices);
+						m_vIndexOffsets.push_back((offset_ptr_size)Start.IndexBufferByteOffset());
+						m_vDrawCounts.push_back(NumVertices);
 					}
 				}
 
-				if(!vpIndexOffsets.empty())
+				if(!m_vIndexOffsets.empty())
 				{
-					Graphics()->RenderTileLayer(Visuals.m_BufferContainerIndex, Color, vpIndexOffsets.data(), vDrawCounts.data(), vpIndexOffsets.size());
+					Graphics()->RenderTileLayer(Visuals.m_BufferContainerIndex, Color, m_vIndexOffsets.data(), m_vDrawCounts.data(), m_vIndexOffsets.size());
 				}
 			}
 		}
