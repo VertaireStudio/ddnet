@@ -571,7 +571,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Texture_Destroy(const CCommandBuff
 	DestroyTexture(pCommand->m_Slot);
 }
 
-void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int Height, int GLFormat, int GLStoreFormat, int Flags, uint8_t *pTexData)
+void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int Height, int GLFormat, int GLStoreFormat, int Flags, uint8_t *pTexData, bool Compressed, const CTextureCompressor::STextureHeader *pCompressedHeader)
 {
 	while(Slot >= (int)m_vTextures.size())
 		m_vTextures.resize(m_vTextures.size() * 2);
@@ -615,7 +615,37 @@ void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int
 		glBindSampler(SamplerSlot, m_vTextures[Slot].m_Sampler);
 	}
 
-	if(Flags & TextureFlag::NO_MIPMAPS)
+	if(Compressed && pCompressedHeader != nullptr)
+	{
+		// The frontend already encoded every level as DXT5; upload them directly
+		// instead of uploading RGBA and re-generating mipmaps on the GPU.
+		if((Flags & TextureFlag::NO_2D_TEXTURE) == 0)
+		{
+			glSamplerParameteri(m_vTextures[Slot].m_Sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glSamplerParameteri(m_vTextures[Slot].m_Sampler, GL_TEXTURE_MIN_FILTER, (Flags & TextureFlag::NO_MIPMAPS) ? GL_LINEAR : GL_LINEAR_MIPMAP_LINEAR);
+
+			const int MipCount = (int)pCompressedHeader->m_MipCount;
+			int MaxLevel = MipCount - 1;
+			// mirror the mipmap cap applied to uncompressed textures (avoid mipmap display bugs)
+			if((Flags & TextureFlag::NO_MIPMAPS) == 0 && Width >= 1024 && Height >= 1024)
+			{
+				MaxLevel = std::min(MaxLevel, 5);
+				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLfloat)MaxLevel);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, MaxLevel);
+			}
+			else if(MipCount > 1)
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, MaxLevel);
+
+			for(int i = 0; i < MipCount; ++i)
+			{
+				const CTextureCompressor::SMipLevel &Mip = pCompressedHeader->m_aMips[i];
+				// 0x83F3 == GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
+				glCompressedTexImage2D(GL_TEXTURE_2D, i, 0x83F3, Mip.m_Width, Mip.m_Height, 0, (GLsizei)Mip.m_DataSize, pTexData + Mip.m_Offset);
+			}
+		}
+		// 2D array/3D variants are never combined with compression (the frontend disables them)
+	}
+	else if((Flags & TextureFlag::NO_MIPMAPS) != 0)
 	{
 		if((Flags & TextureFlag::NO_2D_TEXTURE) == 0)
 		{
@@ -696,12 +726,20 @@ void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int
 	m_vTextures[Slot].m_LastWrapMode = EWrapMode::REPEAT;
 
 	// calculate memory usage
-	m_vTextures[Slot].m_MemSize = (size_t)Width * Height * PixelSize;
-	while(Width > 2 && Height > 2)
+	if(Compressed && pCompressedHeader != nullptr)
 	{
-		Width >>= 1;
-		Height >>= 1;
-		m_vTextures[Slot].m_MemSize += (size_t)Width * Height * PixelSize;
+		for(size_t i = 0; i < pCompressedHeader->m_MipCount; ++i)
+			m_vTextures[Slot].m_MemSize += pCompressedHeader->m_aMips[i].m_DataSize;
+	}
+	else
+	{
+		m_vTextures[Slot].m_MemSize = (size_t)Width * Height * PixelSize;
+		while(Width > 2 && Height > 2)
+		{
+			Width >>= 1;
+			Height >>= 1;
+			m_vTextures[Slot].m_MemSize += (size_t)Width * Height * PixelSize;
+		}
 	}
 	m_pTextureMemoryUsage->store(m_pTextureMemoryUsage->load(std::memory_order_relaxed) + m_vTextures[Slot].m_MemSize, std::memory_order_relaxed);
 
@@ -710,7 +748,7 @@ void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int
 
 void CCommandProcessorFragment_OpenGL3_3::Cmd_Texture_Create(const CCommandBuffer::SCommand_Texture_Create *pCommand)
 {
-	TextureCreate(pCommand->m_Slot, pCommand->m_Width, pCommand->m_Height, GL_RGBA, GL_RGBA, pCommand->m_Flags, pCommand->m_pData);
+	TextureCreate(pCommand->m_Slot, pCommand->m_Width, pCommand->m_Height, GL_RGBA, GL_RGBA, pCommand->m_Flags, pCommand->m_pData, pCommand->m_Compressed, reinterpret_cast<const CTextureCompressor::STextureHeader *>(pCommand->m_pData));
 }
 
 void CCommandProcessorFragment_OpenGL3_3::Cmd_TextTexture_Update(const CCommandBuffer::SCommand_TextTexture_Update *pCommand)
@@ -726,8 +764,8 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_TextTextures_Destroy(const CComman
 
 void CCommandProcessorFragment_OpenGL3_3::Cmd_TextTextures_Create(const CCommandBuffer::SCommand_TextTextures_Create *pCommand)
 {
-	TextureCreate(pCommand->m_Slot, pCommand->m_Width, pCommand->m_Height, GL_RED, GL_RED, TextureFlag::NO_MIPMAPS, pCommand->m_pTextData);
-	TextureCreate(pCommand->m_SlotOutline, pCommand->m_Width, pCommand->m_Height, GL_RED, GL_RED, TextureFlag::NO_MIPMAPS, pCommand->m_pTextOutlineData);
+	TextureCreate(pCommand->m_Slot, pCommand->m_Width, pCommand->m_Height, GL_RED, GL_RED, TextureFlag::NO_MIPMAPS, pCommand->m_pTextData, false, nullptr);
+	TextureCreate(pCommand->m_SlotOutline, pCommand->m_Width, pCommand->m_Height, GL_RED, GL_RED, TextureFlag::NO_MIPMAPS, pCommand->m_pTextOutlineData, false, nullptr);
 }
 
 void CCommandProcessorFragment_OpenGL3_3::Cmd_Clear(const CCommandBuffer::SCommand_Clear *pCommand)

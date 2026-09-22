@@ -2430,6 +2430,8 @@ set_src(ENGINE_GFX GLOB src/engine/gfx
   image_loader.h
   image_manipulation.cpp
   image_manipulation.h
+  texture_compressor.cpp
+  texture_compressor.h
   # tidy-alphabetical-end
 )
 set_src(GAME_SHARED GLOB src/game
@@ -3493,6 +3495,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     teehistorian_test.cpp
     test.cpp
     test.h
+    texture_compressor_test.cpp
     thread_test.cpp
     time_test.cpp
     timestamp_test.cpp

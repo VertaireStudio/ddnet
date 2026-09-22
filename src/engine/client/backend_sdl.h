@@ -127,6 +127,7 @@ struct SBackendCapabilities
 	bool m_2DArrayTextures;
 	bool m_2DArrayTexturesAsExtension;
 	bool m_ShaderSupport;
+	bool m_TextureCompression;
 
 	// use quads as much as possible, even if the user config says otherwise
 	bool m_TrianglesAsQuads;
@@ -223,7 +224,7 @@ class CGraphicsBackend_SDL_GL : public CGraphicsBackend_Threaded
 
 	int m_NumScreens;
 
-	SBackendCapabilities m_Capabilities;
+	SBackendCapabilities m_Capabilities{};
 
 	char m_aVendorString[GPU_INFO_STRING_SIZE] = {};
 	char m_aVersionString[GPU_INFO_STRING_SIZE] = {};
@@ -280,6 +281,7 @@ public:
 	bool HasQuadContainerBuffering() override { return m_Capabilities.m_QuadContainerBuffering; }
 	bool Uses2DTextureArrays() override { return m_Capabilities.m_2DArrayTextures; }
 	bool HasTextureArraysSupport() override { return m_Capabilities.m_2DArrayTextures || m_Capabilities.m_3DTextures; }
+	bool HasTextureCompressionSupport() override { return m_Capabilities.m_TextureCompression; }
 
 	const char *GetErrorString() override
 	{

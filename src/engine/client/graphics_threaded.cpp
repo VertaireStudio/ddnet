@@ -408,6 +408,34 @@ static CCommandBuffer::SCommand_Texture_Create LoadTextureCreateCommand(int Text
 	return Cmd;
 }
 
+// Whether a texture should be encoded to DXT5 before upload. Requires the
+// backend to support it, a plain 2D target, and block-aligned dimensions.
+static bool ShouldCompressTexture(size_t Width, size_t Height, int Flags, bool HasCompressionSupport)
+{
+	if(!HasCompressionSupport || g_Config.m_GfxTextureCompression == 0)
+		return false;
+	if((Flags & (IGraphics::TEXLOAD_TO_2D_ARRAY_TEXTURE | IGraphics::TEXLOAD_TO_3D_TEXTURE | IGraphics::TEXLOAD_NO_2D_TEXTURE)) != 0)
+		return false;
+	if(Width == 0 || Height == 0 || Width % 4 != 0 || Height % 4 != 0)
+		return false;
+	return true;
+}
+
+static void CompressTextureData(CCommandBuffer::SCommand_Texture_Create &Cmd, bool GenerateMipmaps)
+{
+	// only compress once, re-encoding the RGBA bytes of an already compressed command would corrupt it
+	if(Cmd.m_Compressed)
+		return;
+
+	CTextureCompressor::STextureHeader *pHeader = CTextureCompressor::CompressRgba(Cmd.m_pData, Cmd.m_Width, Cmd.m_Height, GenerateMipmaps);
+	if(pHeader == nullptr)
+		return; // keep the uncompressed RGBA data
+
+	free(Cmd.m_pData);
+	Cmd.m_pData = (uint8_t *)pHeader;
+	Cmd.m_Compressed = true;
+}
+
 IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(const CImageInfo &Image, int Flags, const char *pTexName)
 {
 	LoadTextureAddWarning(Image.m_Width, Image.m_Height, Flags, pTexName);
@@ -425,6 +453,9 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(const CImageInfo &I
 		log_warn("graphics", "Converted image '%s' to RGBA, consider making its file format RGBA.", pTexName ? pTexName : "(no name)");
 	}
 	Cmd.m_pData = pTmpData;
+
+	if(ShouldCompressTexture(Image.m_Width, Image.m_Height, Flags, m_GLHasTextureCompressionSupport))
+		CompressTextureData(Cmd, true);
 
 	AddCmd(Cmd);
 
@@ -451,6 +482,10 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRawMove(CImageInfo &Ima
 	Cmd.m_pData = Image.m_pData;
 	Image.m_pData = nullptr;
 	Image.Free();
+
+	if(ShouldCompressTexture(Image.m_Width, Image.m_Height, Flags, m_GLHasTextureCompressionSupport))
+		CompressTextureData(Cmd, true);
+
 	AddCmd(Cmd);
 
 	return TextureHandle;
@@ -2217,6 +2252,7 @@ int CGraphics_Threaded::IssueInit()
 		m_GLTextBufferingEnabled = (m_GLQuadContainerBufferingEnabled && m_pBackend->HasTextBuffering());
 		m_GLUses2DTextureArrays = m_pBackend->Uses2DTextureArrays();
 		m_GLHasTextureArraysSupport = m_pBackend->HasTextureArraysSupport();
+		m_GLHasTextureCompressionSupport = m_pBackend->HasTextureCompressionSupport();
 		m_ScreenHiDPIScale = m_ScreenWidth / (float)g_Config.m_GfxScreenWidth;
 		m_ScreenRefreshRate = g_Config.m_GfxScreenRefreshRate;
 	}

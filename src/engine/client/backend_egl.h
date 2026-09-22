@@ -91,7 +91,7 @@ class CGraphicsBackend_EGL : public CGraphicsBackend_Threaded
 	TTwGraphicsGpuList m_GpuList;
 	TGLBackendReadPresentedImageData m_ReadPresentedImageDataFunc;
 
-	SBackendCapabilities m_Capabilities;
+	SBackendCapabilities m_Capabilities{};
 	EBackendType m_BackendType{BACKEND_TYPE_OPENGL};
 
 	char m_aVendorString[256]{};
@@ -151,6 +151,7 @@ public:
 	bool HasQuadContainerBuffering() override { return m_Capabilities.m_QuadContainerBuffering; }
 	bool Uses2DTextureArrays() override { return m_Capabilities.m_2DArrayTextures; }
 	bool HasTextureArraysSupport() override { return m_Capabilities.m_2DArrayTextures || m_Capabilities.m_3DTextures; }
+	bool HasTextureCompressionSupport() override { return m_Capabilities.m_TextureCompression; }
 
 	const char *GetErrorString() override { return m_aErrorString[0] ? m_aErrorString : nullptr; }
 	const char *GetVendorString() override { return m_aVendorString; }

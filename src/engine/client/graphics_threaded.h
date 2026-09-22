@@ -4,6 +4,7 @@
 #include <base/dbg.h>
 #include <base/sphore.h>
 
+#include <engine/gfx/texture_compressor.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
 
@@ -520,7 +521,10 @@ public:
 		size_t m_Width;
 		size_t m_Height;
 		int m_Flags;
-		// data must be in RGBA format
+		// When m_Compressed is set, m_pData points to a CTextureCompressor::STextureHeader
+		// followed by the DXT5 blocks of all mip levels (offsets relative to m_pData).
+		bool m_Compressed;
+		// data must be in RGBA format (or DXT5 blocks when m_Compressed)
 		uint8_t *m_pData; // will be freed by the command processor
 	};
 
@@ -728,6 +732,7 @@ public:
 	virtual bool HasQuadContainerBuffering() { return false; }
 	virtual bool Uses2DTextureArrays() { return false; }
 	virtual bool HasTextureArraysSupport() { return false; }
+	virtual bool HasTextureCompressionSupport() { return false; }
 	virtual const char *GetErrorString() { return nullptr; }
 
 	virtual const char *GetVendorString() = 0;
@@ -764,6 +769,7 @@ class CGraphics_Threaded : public IEngineGraphics
 	bool m_GLQuadContainerBufferingEnabled;
 	bool m_GLUses2DTextureArrays;
 	bool m_GLHasTextureArraysSupport;
+	bool m_GLHasTextureCompressionSupport;
 	bool m_GLUseTrianglesAsQuad;
 
 	CCommandBuffer *m_apCommandBuffers[2];
@@ -1264,8 +1270,14 @@ public:
 	bool IsTextBufferingEnabled() override { return m_GLTextBufferingEnabled; }
 	bool IsQuadContainerBufferingEnabled() override { return m_GLQuadContainerBufferingEnabled; }
 	bool Uses2DTextureArrays() override { return m_GLUses2DTextureArrays; }
-	int TextureLoadFlags() override { return Uses2DTextureArrays() ? IGraphics::TEXLOAD_TO_2D_ARRAY_TEXTURE : IGraphics::TEXLOAD_TO_3D_TEXTURE; }
+	int TextureLoadFlags() override
+	{
+		if(g_Config.m_GfxTextureCompression != 0 && m_GLHasTextureCompressionSupport)
+			return 0; // compression requires plain 2D textures, disable array/3D batching
+		return Uses2DTextureArrays() ? IGraphics::TEXLOAD_TO_2D_ARRAY_TEXTURE : IGraphics::TEXLOAD_TO_3D_TEXTURE;
+	}
 	bool HasTextureArraysSupport() override { return m_GLHasTextureArraysSupport; }
+	bool HasTextureCompressionSupport() override { return m_GLHasTextureCompressionSupport; }
 
 	const char *GetVendorString() override;
 	const char *GetVersionString() override;

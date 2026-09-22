@@ -6683,6 +6683,7 @@ public:
 		pCommand->m_pCapabilities->m_3DTextures = false;
 		pCommand->m_pCapabilities->m_2DArrayTextures = true;
 		pCommand->m_pCapabilities->m_NPOTTextures = true;
+		pCommand->m_pCapabilities->m_TextureCompression = false;
 
 		pCommand->m_pCapabilities->m_ContextMajor = 1;
 		pCommand->m_pCapabilities->m_ContextMinor = 1;

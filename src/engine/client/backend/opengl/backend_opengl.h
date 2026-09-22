@@ -12,6 +12,8 @@
 
 #include <base/dbg.h>
 
+#include <engine/gfx/texture_compressor.h>
+
 #include <engine/client/backend/backend_base.h>
 #include <engine/client/backend_sdl.h>
 #include <engine/client/graphics_defines.h>
@@ -91,7 +93,7 @@ protected:
 	static size_t GLFormatToPixelSize(int GLFormat);
 
 	void TextureUpdate(int Slot, int X, int Y, int Width, int Height, int GLFormat, uint8_t *pTexData);
-	void TextureCreate(int Slot, int Width, int Height, int GLFormat, int GLStoreFormat, int Flags, uint8_t *pTexData);
+	void TextureCreate(int Slot, int Width, int Height, int GLFormat, int GLStoreFormat, int Flags, uint8_t *pTexData, bool Compressed, const CTextureCompressor::STextureHeader *pCompressedHeader);
 
 	virtual bool Cmd_Init(const SCommand_Init *pCommand);
 	virtual void Cmd_Shutdown(const SCommand_Shutdown *pCommand) {}
