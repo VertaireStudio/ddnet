@@ -265,11 +265,18 @@ STextureHeader *CTextureCompressor::CompressRgba(const uint8_t *pBaseData, size_
 		Mip.m_Offset = (size_t)(pWriteCursor - (uint8_t *)pHeader);
 		Mip.m_DataSize = BlockSpan(Mip.m_Width, Mip.m_Height) * BLOCK_SIZE;
 
-		// Encode into a padded copy so block reads never walk off the level.
-		const size_t PaddedWidth = AlignUp(Mip.m_Width, BLOCK_WIDTH);
-		const size_t PaddedHeight = AlignUp(Mip.m_Height, BLOCK_HEIGHT);
-		uint8_t *pPaddedPlane = (uint8_t *)std::malloc(PaddedWidth * PaddedHeight * 4);
-		if(pPaddedPlane == nullptr)
+		// Block reads walk 4x4 windows, so encode directly from the plane when the
+		// level is block-aligned; otherwise copy into a padded plane first so block
+		// reads never walk off the level.
+		const bool IsAligned = Mip.m_Width % BLOCK_WIDTH == 0 && Mip.m_Height % BLOCK_HEIGHT == 0;
+		const size_t PlaneWidth = IsAligned ? Mip.m_Width : AlignUp(Mip.m_Width, BLOCK_WIDTH);
+		const size_t PlaneHeight = IsAligned ? Mip.m_Height : AlignUp(Mip.m_Height, BLOCK_HEIGHT);
+		uint8_t *pPlane;
+		if(IsAligned)
+			pPlane = (uint8_t *)pTruePlane;
+		else
+			pPlane = (uint8_t *)std::malloc(PlaneWidth * PlaneHeight * 4);
+		if(pPlane == nullptr)
 		{
 			if(bPlaneIsHeapAllocated)
 				std::free((void *)pTruePlane);
@@ -278,7 +285,8 @@ STextureHeader *CTextureCompressor::CompressRgba(const uint8_t *pBaseData, size_
 		}
 		// The base level is passed in uncompressed, the generated levels are upsized
 		// into the padded plane with replicated edge pixels at block boundaries.
-		BuildPaddedPlane(pPaddedPlane, PaddedWidth, PaddedHeight, pTruePlane, aLevelWidths[i], aLevelHeights[i]);
+		if(!IsAligned)
+			BuildPaddedPlane(pPlane, PlaneWidth, PlaneHeight, pTruePlane, Mip.m_Width, Mip.m_Height);
 
 		const size_t BlocksX = (Mip.m_Width + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
 		const size_t BlocksY = (Mip.m_Height + BLOCK_HEIGHT - 1) / BLOCK_HEIGHT;
@@ -286,11 +294,12 @@ STextureHeader *CTextureCompressor::CompressRgba(const uint8_t *pBaseData, size_
 		{
 			for(size_t Bx = 0; Bx < BlocksX; ++Bx)
 			{
-				EncodeBlockRGBA(pPaddedPlane + (By * BLOCK_HEIGHT) * PaddedWidth * 4 + (Bx * BLOCK_WIDTH) * 4, PaddedWidth * 4, pWriteCursor);
+				EncodeBlockRGBA(pPlane + (By * BLOCK_HEIGHT) * PlaneWidth * 4 + (Bx * BLOCK_WIDTH) * 4, PlaneWidth * 4, pWriteCursor);
 				pWriteCursor += BLOCK_SIZE;
 			}
 		}
-		std::free(pPaddedPlane);
+		if(!IsAligned)
+			std::free(pPlane);
 
 		if((i + 1) < MipCount)
 		{

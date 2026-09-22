@@ -456,7 +456,7 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(const CImageInfo &I
 	Cmd.m_pData = pTmpData;
 
 	if(ShouldCompressTexture(Image.m_Width, Image.m_Height, Flags, m_GLHasTextureCompressionSupport))
-		CompressTextureData(Cmd, true);
+		CompressTextureData(Cmd, (Flags & TextureFlag::NO_MIPMAPS) == 0);
 
 	AddCmd(Cmd);
 
@@ -484,8 +484,8 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRawMove(CImageInfo &Ima
 	Image.m_pData = nullptr;
 	Image.Free();
 
-	if(ShouldCompressTexture(Image.m_Width, Image.m_Height, Flags, m_GLHasTextureCompressionSupport))
-		CompressTextureData(Cmd, true);
+	if(ShouldCompressTexture(Cmd.m_Width, Cmd.m_Height, Flags, m_GLHasTextureCompressionSupport))
+		CompressTextureData(Cmd, (Flags & TextureFlag::NO_MIPMAPS) == 0);
 
 	AddCmd(Cmd);
 
