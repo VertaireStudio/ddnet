@@ -152,7 +152,7 @@ public:
 	CTmpQuadVertexTextured m_aVertices[4];
 };
 
-bool CRenderLayerTile::CTileLayerVisuals::Init(unsigned int Width, unsigned int Height)
+bool CRenderLayerTile::CTileLayerVisuals::Init(unsigned int Width, unsigned int Height, bool AllocateTiles)
 {
 	m_Width = Width;
 	m_Height = Height;
@@ -162,7 +162,8 @@ bool CRenderLayerTile::CTileLayerVisuals::Init(unsigned int Width, unsigned int 
 		if(Width >= std::numeric_limits<std::ptrdiff_t>::max() || Height >= std::numeric_limits<std::ptrdiff_t>::max())
 			return false;
 
-	m_vTilesOfLayer.resize((size_t)Height * (size_t)Width);
+	if(AllocateTiles)
+		m_vTilesOfLayer.resize((size_t)Height * (size_t)Width);
 
 	m_vBorderTop.resize(Width);
 	m_vBorderBottom.resize(Width);
@@ -300,6 +301,7 @@ CRenderLayerTile::CRenderLayerTile(int GroupId, int LayerId, int Flags, CMapItem
 	m_pLayerTilemap = pLayerTilemap;
 	m_Color = ColorRGBA(m_pLayerTilemap->m_Color.r / 255.0f, m_pLayerTilemap->m_Color.g / 255.0f, m_pLayerTilemap->m_Color.b / 255.0f, pLayerTilemap->m_Color.a / 255.0f);
 	m_pTiles = nullptr;
+	m_IsChunkable = (m_pLayerTilemap->m_Flags & (TILESLAYERFLAG_GAME | TILESLAYERFLAG_FRONT | TILESLAYERFLAG_SWITCH | TILESLAYERFLAG_TELE | TILESLAYERFLAG_SPEEDUP | TILESLAYERFLAG_TUNE)) == 0;
 }
 
 void CRenderLayerTile::RenderTileLayer(const ColorRGBA &Color, const CRenderLayerParams &Params, CTileLayerVisuals *pTileLayerVisuals)
@@ -326,18 +328,39 @@ void CRenderLayerTile::RenderTileLayer(const ColorRGBA &Color, const CRenderLaye
 		// make sure we have any width and height
 		if(X0 < X1 && Y0 < Y1)
 		{
+			// compute the byte offset and vertex count of the visible draw range,
+			// either from per-cell visuals or, for chunked design layers, from the chunk store
+			auto GetVisibleSlice = [&](size_t SliceX0, size_t SliceX1, size_t SliceY0, size_t SliceY1, offset_ptr_size *pByteOffset, unsigned int *pNumVertices) {
+				if(m_IsChunkable)
+				{
+					const CChunkTileLayer &ChunkTiles = m_ChunkTiles.value();
+					uint32_t Start = ChunkTiles.BlocksBefore((uint32_t)SliceX0, (uint32_t)SliceY0);
+					uint32_t End = ChunkTiles.BlocksBefore((uint32_t)SliceX1 - 1, (uint32_t)SliceY1);
+					dbg_assert(End >= Start, "Tile offsets are not monotone.");
+					*pByteOffset = (offset_ptr_size)(Start * 6 * sizeof(uint32_t));
+					*pNumVertices = (End - Start) * 6 + (ChunkTiles.Present((uint32_t)SliceX1 - 1, (uint32_t)SliceY1) ? 6 : 0);
+				}
+				else
+				{
+					size_t StartIndex = SliceY0 * Visuals.m_Width + SliceX0;
+					size_t EndIndex = SliceY1 * Visuals.m_Width + (SliceX1 - 1);
+					const auto &Start = Visuals.m_vTilesOfLayer[StartIndex];
+					const auto &End = Visuals.m_vTilesOfLayer[EndIndex];
+					dbg_assert(End.IndexBufferByteOffset() >= Start.IndexBufferByteOffset(), "Tile offsets are not monotone.");
+					*pByteOffset = (offset_ptr_size)Start.IndexBufferByteOffset();
+					*pNumVertices = ((End.IndexBufferByteOffset() - Start.IndexBufferByteOffset()) / sizeof(unsigned int)) + (End.DoDraw() ? 6lu : 0lu);
+				}
+			};
+
 			// render all visible rows directly, because their start and end are are not offscreen
 			if(X0 == 0 && X1 == (size_t)Visuals.m_Width)
 			{
-				size_t StartIndex = Y0 * Visuals.m_Width;
-				size_t EndIndex = Y1 * Visuals.m_Width - 1;
-				const auto &Start = Visuals.m_vTilesOfLayer[StartIndex];
-				const auto &End = Visuals.m_vTilesOfLayer[EndIndex];
-				unsigned int NumVertices = ((End.IndexBufferByteOffset() - Start.IndexBufferByteOffset()) / sizeof(unsigned int)) + (End.DoDraw() ? 6lu : 0lu);
+				offset_ptr_size ByteOffset;
+				unsigned int NumVertices;
+				GetVisibleSlice(0, Visuals.m_Width, Y0, Y1, &ByteOffset, &NumVertices);
 
 				if(NumVertices)
 				{
-					offset_ptr_size ByteOffset = (offset_ptr_size)Start.IndexBufferByteOffset();
 					Graphics()->RenderTileLayer(Visuals.m_BufferContainerIndex, Color, &ByteOffset, &NumVertices, 1);
 				}
 			}
@@ -349,18 +372,29 @@ void CRenderLayerTile::RenderTileLayer(const ColorRGBA &Color, const CRenderLaye
 				m_vDrawCounts.clear();
 				m_vIndexOffsets.reserve(Y1 - Y0 + 1);
 				m_vDrawCounts.reserve(Y1 - Y0 + 1);
+				const CChunkTileLayer *pChunkTiles = m_IsChunkable ? &m_ChunkTiles.value() : nullptr;
 				for(size_t RowIndex = Y0; RowIndex < Y1; ++RowIndex)
 				{
-					size_t StartIndex = RowIndex * Visuals.m_Width + X0;
-					size_t EndIndex = RowIndex * Visuals.m_Width + (X1 - 1);
-					const auto &Start = Visuals.m_vTilesOfLayer[StartIndex];
-					const auto &End = Visuals.m_vTilesOfLayer[EndIndex];
-					dbg_assert(End.IndexBufferByteOffset() >= Start.IndexBufferByteOffset(), "Tile offsets are not monotone.");
-					unsigned int NumVertices = ((End.IndexBufferByteOffset() - Start.IndexBufferByteOffset()) / sizeof(unsigned int)) + (End.DoDraw() ? 6lu : 0lu);
+					offset_ptr_size ByteOffset;
+					unsigned int NumVertices;
+					if(pChunkTiles)
+					{
+						// split the slice into an absolute row start plus a screen-sized
+						// window count, so the columns before X0 are scanned only once
+						// instead of once per resolved end offset
+						uint32_t Start = pChunkTiles->RowPrefix((uint32_t)RowIndex) + pChunkTiles->ColsBefore((uint32_t)X0, (uint32_t)RowIndex);
+						uint32_t Window = pChunkTiles->RowExtras((uint32_t)X0, (uint32_t)X1 - 1, (uint32_t)RowIndex);
+						ByteOffset = (offset_ptr_size)(Start * 6 * sizeof(uint32_t));
+						NumVertices = Window * 6 + (pChunkTiles->Present((uint32_t)X1 - 1, (uint32_t)RowIndex) ? 6u : 0u);
+					}
+					else
+					{
+						GetVisibleSlice(X0, X1, RowIndex, RowIndex, &ByteOffset, &NumVertices);
+					}
 
 					if(NumVertices)
 					{
-						m_vIndexOffsets.push_back((offset_ptr_size)Start.IndexBufferByteOffset());
+						m_vIndexOffsets.push_back(ByteOffset);
 						m_vDrawCounts.push_back(NumVertices);
 					}
 				}
@@ -617,6 +651,15 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	if(!Graphics()->IsTileBufferingEnabled())
 		return;
 
+	// design tile layers are stored as chunks, so empty areas and the dense
+	// per-cell visual array are not kept around at all
+	if(m_IsChunkable)
+	{
+		dbg_assert(CurOverlay == 0 && !AddAsSpeedup && !IsGameLayer, "chunked tile layers are only used for plain design tiles");
+		UploadTileDataChunked(VisualsOptional);
+		return;
+	}
+
 	// prepare all visuals for all tile layers
 	std::vector<CGraphicTile> vTmpTiles;
 	std::vector<CGraphicTileTextureCoords> vTmpTileTexCoords;
@@ -820,6 +863,11 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	InsertTiles(vTmpBorderLeftTiles, vTmpBorderLeftTilesTexCoords);
 	InsertTiles(vTmpBorderRightTiles, vTmpBorderRightTilesTexCoords);
 
+	UploadTileDataBuffer(Visuals, vTmpTiles, vTmpTileTexCoords, DoTextureCoords);
+}
+
+void CRenderLayerTile::UploadTileDataBuffer(CRenderLayerTile::CTileLayerVisuals &Visuals, std::vector<CGraphicTile> &vTmpTiles, std::vector<CGraphicTileTextureCoords> &vTmpTileTexCoords, bool DoTextureCoords)
+{
 	Visuals.m_BufferContainerIndex = -1;
 
 	// upload data to gpu
@@ -892,6 +940,271 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	// and finally inform the backend how many indices are required
 	Graphics()->IndicesNumRequiredNotify(vTmpTiles.size() * 6);
 }
+
+void CRenderLayerTile::UploadTileDataChunked(std::optional<CTileLayerVisuals> &VisualsOptional)
+{
+	std::vector<CGraphicTile> vTmpTiles;
+	std::vector<CGraphicTileTextureCoords> vTmpTileTexCoords;
+	std::vector<CGraphicTile> vTmpBorderTopTiles;
+	std::vector<CGraphicTileTextureCoords> vTmpBorderTopTilesTexCoords;
+	std::vector<CGraphicTile> vTmpBorderLeftTiles;
+	std::vector<CGraphicTileTextureCoords> vTmpBorderLeftTilesTexCoords;
+	std::vector<CGraphicTile> vTmpBorderRightTiles;
+	std::vector<CGraphicTileTextureCoords> vTmpBorderRightTilesTexCoords;
+	std::vector<CGraphicTile> vTmpBorderBottomTiles;
+	std::vector<CGraphicTileTextureCoords> vTmpBorderBottomTilesTexCoords;
+	std::vector<CGraphicTile> vTmpBorderCorners;
+	std::vector<CGraphicTileTextureCoords> vTmpBorderCornersTexCoords;
+
+	const bool DoTextureCoords = GetTexture().IsValid();
+
+	CTileLayerVisuals v;
+	v.OnInit(this);
+	VisualsOptional = v;
+	CTileLayerVisuals &Visuals = VisualsOptional.value();
+
+	if(!Visuals.Init(m_pLayerTilemap->m_Width, m_pLayerTilemap->m_Height, false))
+		return;
+
+	Visuals.m_IsTextured = DoTextureCoords;
+
+	const int Width = m_pLayerTilemap->m_Width;
+	const int Height = m_pLayerTilemap->m_Height;
+	const int ChunkSize = CChunkTileLayer::CHUNK_SIZE;
+	const int ChunksX = (Width + ChunkSize - 1) / ChunkSize;
+	const int ChunksY = (Height + ChunkSize - 1) / ChunkSize;
+
+	m_ChunkTiles = CChunkTileLayer();
+	CChunkTileLayer &ChunkTiles = m_ChunkTiles.value();
+	ChunkTiles.Init(ChunksX, ChunksY, Width, Height);
+
+	// count the drawn tiles per chunk to pick the container, empty chunks stay empty
+	for(int ChunkY = 0; ChunkY < ChunksY; ++ChunkY)
+	{
+		const int Row1 = std::min((ChunkY + 1) * ChunkSize, Height);
+		for(int ChunkX = 0; ChunkX < ChunksX; ++ChunkX)
+		{
+			const int Col1 = std::min((ChunkX + 1) * ChunkSize, Width);
+			int Count = 0;
+			for(int Y = ChunkY * ChunkSize; Y < Row1; ++Y)
+			{
+				for(int X = ChunkX * ChunkSize; X < Col1; ++X)
+				{
+					if(m_pTiles[Y * Width + X].m_Index > 0)
+						++Count;
+				}
+			}
+			if(Count == 0)
+				continue;
+			CChunkTileLayer::SChunk &Chunk = ChunkTiles.Chunk(ChunkTiles.ChunkId(ChunkX, ChunkY));
+			Chunk.m_Count = Count;
+			Chunk.m_Container = (uint32_t)Count <= CChunkTileLayer::SPARSE_THRESHOLD ? CChunkTileLayer::CONTAINER_SPARSE : CChunkTileLayer::CONTAINER_DENSE;
+		}
+	}
+
+	// fill the chunks and track the shrink clip region
+	int DrawLeft = Width;
+	int DrawRight = 0;
+	int DrawTop = Height;
+	int DrawBottom = 0;
+	auto UpdateClip = [&](int X, int Y) {
+		DrawLeft = std::min(DrawLeft, X);
+		DrawRight = std::max(DrawRight, X);
+		DrawTop = std::min(DrawTop, Y);
+		DrawBottom = std::max(DrawBottom, Y);
+	};
+
+	for(int ChunkY = 0; ChunkY < ChunksY; ++ChunkY)
+	{
+		const int Row1 = std::min((ChunkY + 1) * ChunkSize, Height);
+		for(int ChunkX = 0; ChunkX < ChunksX; ++ChunkX)
+		{
+			const int Col1 = std::min((ChunkX + 1) * ChunkSize, Width);
+			CChunkTileLayer::SChunk &Chunk = ChunkTiles.Chunk(ChunkTiles.ChunkId(ChunkX, ChunkY));
+			if(Chunk.m_Container == CChunkTileLayer::CONTAINER_SPARSE)
+			{
+				Chunk.m_aSparse.reserve(Chunk.m_Count);
+				for(int Y = ChunkY * ChunkSize; Y < Row1; ++Y)
+				{
+					for(int X = ChunkX * ChunkSize; X < Col1; ++X)
+					{
+						if(m_pTiles[Y * Width + X].m_Index > 0)
+						{
+							Chunk.m_aSparse.emplace_back(CChunkTileLayer::SChunkTile::Make(X & CChunkTileLayer::X_MASK, Y & CChunkTileLayer::Y_MASK, m_pTiles[Y * Width + X].m_Index, m_pTiles[Y * Width + X].m_Flags));
+							UpdateClip(X, Y);
+						}
+					}
+				}
+			}
+			else if(Chunk.m_Container == CChunkTileLayer::CONTAINER_DENSE)
+			{
+				for(int Y = ChunkY * ChunkSize; Y < Row1; ++Y)
+				{
+					for(int X = ChunkX * ChunkSize; X < Col1; ++X)
+					{
+						if(m_pTiles[Y * Width + X].m_Index > 0)
+						{
+							Chunk.m_aDense[(Y & CChunkTileLayer::Y_MASK) * ChunkSize + (X & CChunkTileLayer::X_MASK)] = (uint16_t)((m_pTiles[Y * Width + X].m_Index << 8) | m_pTiles[Y * Width + X].m_Flags);
+							UpdateClip(X, Y);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	ChunkTiles.BuildRowPrefix();
+
+	// shrink clip region, mirroring the dense path
+	if(DrawLeft > DrawRight || DrawTop > DrawBottom)
+	{
+		m_LayerClip = CClipRegion(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	else
+	{
+		m_LayerClip = CClipRegion(DrawLeft * 32.0f, DrawTop * 32.0f, (DrawRight - DrawLeft + 1) * 32.0f, (DrawBottom - DrawTop + 1) * 32.0f);
+	}
+
+	// emit the drawn tiles in strict row-major cell order, chunk by chunk, so the
+	// byte offsets stay monotone and identical to the dense path
+	for(int ChunkY = 0; ChunkY < ChunksY; ++ChunkY)
+	{
+		const int Row1 = std::min((ChunkY + 1) * ChunkSize, Height);
+		for(int Y = ChunkY * ChunkSize; Y < Row1; ++Y)
+		{
+			for(int ChunkX = 0; ChunkX < ChunksX; ++ChunkX)
+			{
+				const CChunkTileLayer::SChunk &Chunk = ChunkTiles.Chunk(ChunkTiles.ChunkId(ChunkX, ChunkY));
+				if(Chunk.m_Container == CChunkTileLayer::CONTAINER_NONE)
+					continue;
+				const int Col1 = std::min((ChunkX + 1) * ChunkSize, Width);
+				for(int X = ChunkX * ChunkSize; X < Col1; ++X)
+				{
+					unsigned char Index = 0;
+					unsigned char Flags = 0;
+					ChunkTiles.Get(X, Y, &Index, &Flags);
+					AddTile(vTmpTiles, vTmpTileTexCoords, Index, Flags, X, Y, DoTextureCoords);
+				}
+			}
+		}
+	}
+
+	// borders are only drawn for the tiles just outside the layer
+	auto AddEdgeTile = [&](std::vector<CGraphicTile> &vTiles, std::vector<CGraphicTileTextureCoords> &vTexCoords, int X, int Y, const ivec2 &Offset) {
+		unsigned char Index = 0;
+		unsigned char Flags = 0;
+		ChunkTiles.Get(X, Y, &Index, &Flags);
+		return AddTile(vTiles, vTexCoords, Index, Flags, X, Y, DoTextureCoords, false, -1, Offset);
+	};
+
+	for(int Y = 0; Y < Height; ++Y)
+	{
+		// left edge
+		Visuals.m_vBorderLeft[Y].SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderLeftTiles.size()));
+		if(Y == 0)
+		{
+			Visuals.m_BorderTopLeft.SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderCorners.size()));
+			if(AddEdgeTile(vTmpBorderCorners, vTmpBorderCornersTexCoords, 0, 0, ivec2{-32, -32}))
+				Visuals.m_BorderTopLeft.Draw(true);
+		}
+		else if(Y == Height - 1)
+		{
+			Visuals.m_BorderBottomLeft.SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderCorners.size()));
+			if(AddEdgeTile(vTmpBorderCorners, vTmpBorderCornersTexCoords, 0, Y, ivec2{-32, 0}))
+				Visuals.m_BorderBottomLeft.Draw(true);
+		}
+		if(AddEdgeTile(vTmpBorderLeftTiles, vTmpBorderLeftTilesTexCoords, 0, Y, ivec2{-32, 0}))
+			Visuals.m_vBorderLeft[Y].Draw(true);
+
+		// right edge
+		if(Width > 1)
+		{
+			if(Y == 0)
+			{
+				Visuals.m_BorderTopRight.SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderCorners.size()));
+				if(AddEdgeTile(vTmpBorderCorners, vTmpBorderCornersTexCoords, Width - 1, 0, ivec2{0, -32}))
+					Visuals.m_BorderTopRight.Draw(true);
+			}
+			else if(Y == Height - 1)
+			{
+				Visuals.m_BorderBottomRight.SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderCorners.size()));
+				if(AddEdgeTile(vTmpBorderCorners, vTmpBorderCornersTexCoords, Width - 1, Y, ivec2{0, 0}))
+					Visuals.m_BorderBottomRight.Draw(true);
+			}
+			Visuals.m_vBorderRight[Y].SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderRightTiles.size()));
+			if(AddEdgeTile(vTmpBorderRightTiles, vTmpBorderRightTilesTexCoords, Width - 1, Y, ivec2{0, 0}))
+				Visuals.m_vBorderRight[Y].Draw(true);
+		}
+
+		// top and bottom edges
+		if(Y == 0)
+		{
+			for(int X = 0; X < Width; ++X)
+			{
+				Visuals.m_vBorderTop[X].SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderTopTiles.size()));
+				if(AddEdgeTile(vTmpBorderTopTiles, vTmpBorderTopTilesTexCoords, X, 0, ivec2{0, -32}))
+					Visuals.m_vBorderTop[X].Draw(true);
+			}
+		}
+		else if(Y == Height - 1 && Height > 1)
+		{
+			for(int X = 0; X < Width; ++X)
+			{
+				Visuals.m_vBorderBottom[X].SetIndexBufferByteOffset((offset_ptr32)(vTmpBorderBottomTiles.size()));
+				if(AddEdgeTile(vTmpBorderBottomTiles, vTmpBorderBottomTilesTexCoords, X, Y, ivec2{0, 0}))
+					Visuals.m_vBorderBottom[X].Draw(true);
+			}
+		}
+	}
+
+	// inserts and clears tiles and tile texture coords
+	auto InsertTiles = [&](std::vector<CGraphicTile> &vTiles, std::vector<CGraphicTileTextureCoords> &vTexCoords) {
+		vTmpTiles.insert(vTmpTiles.end(), vTiles.begin(), vTiles.end());
+		vTmpTileTexCoords.insert(vTmpTileTexCoords.end(), vTexCoords.begin(), vTexCoords.end());
+		vTiles.clear();
+		vTexCoords.clear();
+	};
+
+	// add the border corners, then the borders and fix their byte offsets
+	int TilesHandledCount = vTmpTiles.size();
+	Visuals.m_BorderTopLeft.AddIndexBufferByteOffset(TilesHandledCount);
+	Visuals.m_BorderTopRight.AddIndexBufferByteOffset(TilesHandledCount);
+	Visuals.m_BorderBottomLeft.AddIndexBufferByteOffset(TilesHandledCount);
+	Visuals.m_BorderBottomRight.AddIndexBufferByteOffset(TilesHandledCount);
+
+	// add the Corners to the tiles
+	InsertTiles(vTmpBorderCorners, vTmpBorderCornersTexCoords);
+
+	// now the borders
+	int TilesHandledCountTop = vTmpTiles.size();
+	int TilesHandledCountBottom = TilesHandledCountTop + vTmpBorderTopTiles.size();
+	int TilesHandledCountLeft = TilesHandledCountBottom + vTmpBorderBottomTiles.size();
+	int TilesHandledCountRight = TilesHandledCountLeft + vTmpBorderLeftTiles.size();
+
+if(Width > 0 && Height > 0)
+		{
+			for(int i = 0; i < std::max(Width, Height); ++i)
+			{
+				if(i < Width)
+				{
+					Visuals.m_vBorderTop[i].AddIndexBufferByteOffset(TilesHandledCountTop);
+					Visuals.m_vBorderBottom[i].AddIndexBufferByteOffset(TilesHandledCountBottom);
+				}
+				if(i < Height)
+				{
+					Visuals.m_vBorderLeft[i].AddIndexBufferByteOffset(TilesHandledCountLeft);
+					Visuals.m_vBorderRight[i].AddIndexBufferByteOffset(TilesHandledCountRight);
+				}
+			}
+		}
+
+		InsertTiles(vTmpBorderTopTiles, vTmpBorderTopTilesTexCoords);
+		InsertTiles(vTmpBorderBottomTiles, vTmpBorderBottomTilesTexCoords);
+		InsertTiles(vTmpBorderLeftTiles, vTmpBorderLeftTilesTexCoords);
+		InsertTiles(vTmpBorderRightTiles, vTmpBorderRightTilesTexCoords);
+
+		UploadTileDataBuffer(Visuals, vTmpTiles, vTmpTileTexCoords, DoTextureCoords);
+	}
 
 void CRenderLayerTile::Unload()
 {

@@ -3454,6 +3454,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     blocklist_driver_test.cpp
     bytes_be_test.cpp
     chunk_header_test.cpp
+    chunk_tile_layer_test.cpp
     color_test.cpp
     compression_test.cpp
     csv_test.cpp
