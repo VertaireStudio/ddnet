@@ -196,6 +196,11 @@ uint64_t CGraphics_Threaded::StagingMemoryUsage() const
 	return m_pBackend->StagingMemoryUsage();
 }
 
+size_t CGraphics_Threaded::GetRenderCallCount() const
+{
+	return m_RenderCallCountLastFrame;
+}
+
 const TTwGraphicsGpuList &CGraphics_Threaded::GetGpus() const
 {
 	return m_pBackend->GetGpus();
@@ -2867,6 +2872,8 @@ void CGraphics_Threaded::Swap()
 	}
 
 	KickCommandBuffer();
+
+	m_RenderCallCountLastFrame = m_apCommandBuffers[m_CurrentCommandBuffer ^ 1]->m_RenderCallCount;
 }
 
 bool CGraphics_Threaded::SetVSync(bool State)

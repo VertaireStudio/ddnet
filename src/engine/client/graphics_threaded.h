@@ -775,6 +775,7 @@ class CGraphics_Threaded : public IEngineGraphics
 	CCommandBuffer *m_apCommandBuffers[2];
 	CCommandBuffer *m_pCommandBuffer;
 	unsigned m_CurrentCommandBuffer;
+	size_t m_RenderCallCountLastFrame = 0;
 
 	//
 	class IStorage *m_pStorage;
@@ -926,6 +927,7 @@ public:
 	uint64_t BufferMemoryUsage() const override;
 	uint64_t StreamedMemoryUsage() const override;
 	uint64_t StagingMemoryUsage() const override;
+	size_t GetRenderCallCount() const override;
 
 	const TTwGraphicsGpuList &GetGpus() const override;
 

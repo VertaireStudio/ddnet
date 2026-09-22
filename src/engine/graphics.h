@@ -347,6 +347,7 @@ public:
 	virtual uint64_t BufferMemoryUsage() const = 0;
 	virtual uint64_t StreamedMemoryUsage() const = 0;
 	virtual uint64_t StagingMemoryUsage() const = 0;
+	virtual size_t GetRenderCallCount() const = 0;
 
 	virtual const TTwGraphicsGpuList &GetGpus() const = 0;
 

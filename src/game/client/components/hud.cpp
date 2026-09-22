@@ -580,6 +580,12 @@ void CHud::RenderTextInfo()
 			TextRender()->RenderTextContainer(m_FPSTextContainerIndex, TextRender()->DefaultTextColor(), TextRender()->DefaultTextOutlineColor());
 		}
 	}
+	if(Showfps)
+	{
+		char aBuf[32];
+		str_format(aBuf, sizeof(aBuf), "Draw calls: %d", static_cast<int>(Graphics()->GetRenderCallCount()));
+		TextRender()->Text(m_Width - 10 - TextRender()->TextWidth(12, aBuf, -1, -1.0f), 35, 12, aBuf, -1.0f);
+	}
 	if(g_Config.m_ClShowpred && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 	{
 		char aBuf[64];
