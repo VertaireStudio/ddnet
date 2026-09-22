@@ -580,7 +580,7 @@ ColorRGBA CRenderLayerTile::GetRenderColor(const CRenderLayerParams &Params) con
 		Color.a *= (100 - Params.m_EntityOverlayVal) / 100.0f;
 
 	ColorRGBA ColorEnv = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-	m_pEnvelopeManager->EnvelopeEval()->EnvelopeEval(m_pLayerTilemap->m_ColorEnvOffset, m_pLayerTilemap->m_ColorEnv, ColorEnv, 4);
+	m_pEnvelopeManager->CachedEnvelopeEval(m_pLayerTilemap->m_ColorEnvOffset, m_pLayerTilemap->m_ColorEnv, ColorEnv, 4);
 	Color = Color.Multiply(ColorEnv);
 	return Color;
 }
@@ -1327,7 +1327,7 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 				ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 				if(pQuad->m_ColorEnv >= 0)
 				{
-					m_pEnvelopeManager->EnvelopeEval()->EnvelopeEval(pQuad->m_ColorEnvOffset, pQuad->m_ColorEnv, Color, 4);
+					m_pEnvelopeManager->CachedEnvelopeEval(pQuad->m_ColorEnvOffset, pQuad->m_ColorEnv, Color, 4);
 				}
 				Color.a *= Alpha;
 
@@ -1340,7 +1340,7 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 				{
 					AnyVisible = true;
 					ColorRGBA Position = ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f);
-					m_pEnvelopeManager->EnvelopeEval()->EnvelopeEval(pQuad->m_PosEnvOffset, pQuad->m_PosEnv, Position, 3);
+					m_pEnvelopeManager->CachedEnvelopeEval(pQuad->m_PosEnvOffset, pQuad->m_PosEnv, Position, 3);
 					QInfo.m_Offsets.x = Position.r;
 					QInfo.m_Offsets.y = Position.g;
 					QInfo.m_Rotation = Position.b / 180.0f * pi;
@@ -1356,7 +1356,7 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 			ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 			if(QuadCluster.m_ColorEnv >= 0)
 			{
-				m_pEnvelopeManager->EnvelopeEval()->EnvelopeEval(QuadCluster.m_ColorEnvOffset, QuadCluster.m_ColorEnv, Color, 4);
+				m_pEnvelopeManager->CachedEnvelopeEval(QuadCluster.m_ColorEnvOffset, QuadCluster.m_ColorEnv, Color, 4);
 			}
 
 			Color.a *= Alpha;
@@ -1364,15 +1364,63 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 				continue;
 			QInfo.m_Color = Color;
 
-			if(QuadCluster.m_PosEnv >= 0)
+			// dynamic culling for grouped clusters with position envelope
+			if(QuadCluster.m_PosEnv >= 0 && QuadCluster.m_StaticBounds.has_value())
 			{
 				ColorRGBA Position = ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f);
-				m_pEnvelopeManager->EnvelopeEval()->EnvelopeEval(QuadCluster.m_PosEnvOffset, QuadCluster.m_PosEnv, Position, 3);
+				m_pEnvelopeManager->CachedEnvelopeEval(QuadCluster.m_PosEnvOffset, QuadCluster.m_PosEnv, Position, 3);
+
+				vec2 Offset(Position.r, Position.g);
+				float Rotation = Position.b / 180.0f * pi;
+
+				// compute current bounds = static bounds + current offset
+				CClipRegion CurrentClip = *QuadCluster.m_StaticBounds;
+				CurrentClip.m_X += Offset.x;
+				CurrentClip.m_Y += Offset.y;
+
+				// if rotation, expand bounds by max distance from center (same as CalculateQuadClipping)
+				if(Rotation != 0.0f)
+				{
+					// find max distance from center to any corner for all quads in cluster
+					float MaxDistance = 0.0f;
+					for(int QuadId = QuadCluster.m_StartIndex; QuadId < QuadCluster.m_StartIndex + QuadCluster.m_NumQuads; ++QuadId)
+					{
+						const CQuad *pQuad = &m_pQuads[QuadId];
+						const CPoint &CenterFX = pQuad->m_aPoints[4];
+						vec2 Center(fx2f(CenterFX.x) + Offset.x, fx2f(CenterFX.y) + Offset.y);
+						for(int QuadIdPoint = 0; QuadIdPoint < 4; ++QuadIdPoint)
+						{
+							const CPoint &QuadPointFX = pQuad->m_aPoints[QuadIdPoint];
+							vec2 QuadPoint(fx2f(QuadPointFX.x) + Offset.x, fx2f(QuadPointFX.y) + Offset.y);
+							float Distance = length(Center - QuadPoint);
+							MaxDistance = std::max(Distance, MaxDistance);
+						}
+					}
+					CurrentClip.m_X -= MaxDistance;
+					CurrentClip.m_Y -= MaxDistance;
+					CurrentClip.m_Width += 2.0f * MaxDistance;
+					CurrentClip.m_Height += 2.0f * MaxDistance;
+				}
+
+				// skip if current bounds don't intersect screen
+				if(!IsVisibleInClipRegion(CurrentClip))
+					continue;
+
+				QInfo.m_Offsets.x = Offset.x;
+				QInfo.m_Offsets.y = Offset.y;
+				QInfo.m_Rotation = Rotation;
+			}
+			else if(QuadCluster.m_PosEnv >= 0)
+			{
+				// fallback: evaluate without culling (no static bounds available)
+				ColorRGBA Position = ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f);
+				m_pEnvelopeManager->CachedEnvelopeEval(QuadCluster.m_PosEnvOffset, QuadCluster.m_PosEnv, Position, 3);
 
 				QInfo.m_Offsets.x = Position.r;
 				QInfo.m_Offsets.y = Position.g;
 				QInfo.m_Rotation = Position.b / 180.0f * pi;
 			}
+
 			Graphics()->RenderQuadLayer(Visuals.m_BufferContainerIndex, &QInfo, (size_t)QuadCluster.m_NumQuads, QuadCluster.m_StartIndex, true);
 		}
 	}
@@ -1721,6 +1769,68 @@ void CRenderLayerQuads::CalculateClipping(CQuadCluster &QuadCluster)
 		m_LayerClip->m_Width = ClipRight - m_LayerClip->m_X;
 		m_LayerClip->m_Height = ClipBottom - m_LayerClip->m_Y;
 	}
+
+	// compute static bounds (without envelope)
+	CalculateStaticBounds(QuadCluster);
+}
+
+void CRenderLayerQuads::CalculateStaticBounds(CQuadCluster &QuadCluster)
+{
+	float aQuadOffsetMin[2];
+	float aQuadOffsetMax[2];
+
+	// calculate quad position offsets without envelope
+	for(int Channel = 0; Channel < 2; ++Channel)
+	{
+		aQuadOffsetMin[Channel] = std::numeric_limits<float>::max();
+		aQuadOffsetMax[Channel] = std::numeric_limits<float>::lowest();
+	}
+
+	for(int QuadId = QuadCluster.m_StartIndex; QuadId < QuadCluster.m_StartIndex + QuadCluster.m_NumQuads; ++QuadId)
+	{
+		const CQuad *pQuad = &m_pQuads[QuadId];
+
+		// calculate clip region
+		for(int QuadIdPoint = 0; QuadIdPoint < 4; ++QuadIdPoint)
+		{
+			for(int Channel = 0; Channel < 2; ++Channel)
+			{
+				float OffsetMinimum = fx2f(pQuad->m_aPoints[QuadIdPoint][Channel]);
+				float OffsetMaximum = fx2f(pQuad->m_aPoints[QuadIdPoint][Channel]);
+
+				aQuadOffsetMin[Channel] = std::min(aQuadOffsetMin[Channel], OffsetMinimum);
+				aQuadOffsetMax[Channel] = std::max(aQuadOffsetMax[Channel], OffsetMaximum);
+			}
+		}
+	}
+
+	// Also handle rotation case: expand to max distance from center
+	for(int QuadId = QuadCluster.m_StartIndex; QuadId < QuadCluster.m_StartIndex + QuadCluster.m_NumQuads; ++QuadId)
+	{
+		const CQuad *pQuad = &m_pQuads[QuadId];
+		const CPoint &CenterFX = pQuad->m_aPoints[4];
+		vec2 Center(fx2f(CenterFX.x), fx2f(CenterFX.y));
+		float MaxDistance = 0;
+		for(int QuadIdPoint = 0; QuadIdPoint < 4; ++QuadIdPoint)
+		{
+			const CPoint &QuadPointFX = pQuad->m_aPoints[QuadIdPoint];
+			vec2 QuadPoint(fx2f(QuadPointFX.x), fx2f(QuadPointFX.y));
+			float Distance = length(Center - QuadPoint);
+			MaxDistance = std::max(Distance, MaxDistance);
+		}
+		for(int Channel = 0; Channel < 2; ++Channel)
+		{
+			aQuadOffsetMin[Channel] = std::min(aQuadOffsetMin[Channel], Center[Channel] - MaxDistance);
+			aQuadOffsetMax[Channel] = std::max(aQuadOffsetMax[Channel], Center[Channel] + MaxDistance);
+		}
+	}
+
+	QuadCluster.m_StaticBounds = std::make_optional<CClipRegion>();
+	std::optional<CClipRegion> &StaticBounds = QuadCluster.m_StaticBounds;
+	StaticBounds->m_X = aQuadOffsetMin[0];
+	StaticBounds->m_Width = aQuadOffsetMax[0] - aQuadOffsetMin[0];
+	StaticBounds->m_Y = aQuadOffsetMin[1];
+	StaticBounds->m_Height = aQuadOffsetMax[1] - aQuadOffsetMin[1];
 }
 
 void CRenderLayerQuads::Render(const CRenderLayerParams &Params)

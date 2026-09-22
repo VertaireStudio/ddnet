@@ -20,7 +20,7 @@ void CMapRenderer::Load(ERenderType Type, CLayers *pLayers, IMapImages *pMapImag
 {
 	Clear();
 
-	std::shared_ptr<CEnvelopeManager> pEnvelopeManager = std::make_shared<CEnvelopeManager>(pEnvelopeEval, pLayers->Map());
+	m_pEnvelopeManager = std::make_shared<CEnvelopeManager>(pEnvelopeEval, pLayers->Map());
 	bool PassedGameLayer = false;
 
 	for(int GroupId = 0; GroupId < pLayers->NumGroups(); GroupId++)
@@ -36,7 +36,7 @@ void CMapRenderer::Load(ERenderType Type, CLayers *pLayers, IMapImages *pMapImag
 			};
 		}
 
-		pRenderLayerGroup->OnInit(Graphics(), TextRender(), RenderMap(), pEnvelopeManager, pLayers->Map(), pMapImages, CallbackLayerInitOptional);
+		pRenderLayerGroup->OnInit(Graphics(), TextRender(), RenderMap(), m_pEnvelopeManager, pLayers->Map(), pMapImages, CallbackLayerInitOptional);
 		if(!pRenderLayerGroup->IsValid())
 		{
 			log_error("map_renderer", "error group was null, group number = %d, total groups = %d", GroupId, pLayers->NumGroups());
@@ -140,7 +140,7 @@ void CMapRenderer::Load(ERenderType Type, CLayers *pLayers, IMapImages *pMapImag
 			// just ignore invalid layers from rendering
 			if(pRenderLayer)
 			{
-				pRenderLayer->OnInit(Graphics(), TextRender(), RenderMap(), pEnvelopeManager, pLayers->Map(), pMapImages, CallbackLayerInitOptional);
+				pRenderLayer->OnInit(Graphics(), TextRender(), RenderMap(), m_pEnvelopeManager, pLayers->Map(), pMapImages, CallbackLayerInitOptional);
 				if(pRenderLayer->IsValid())
 				{
 					pRenderLayer->Init();
@@ -153,6 +153,8 @@ void CMapRenderer::Load(ERenderType Type, CLayers *pLayers, IMapImages *pMapImag
 
 void CMapRenderer::Render(const CRenderLayerParams &Params)
 {
+	m_pEnvelopeManager->BeginFrame();
+
 	CScreenRect ScreenRect = Graphics()->GetScreen();
 
 	bool DoRenderGroup = true;

@@ -22,6 +22,7 @@ private:
 	int GetLayerType(const CMapItemLayer *pLayer) const;
 
 	std::vector<std::unique_ptr<CRenderLayer>> m_vpRenderLayers;
+	std::shared_ptr<CEnvelopeManager> m_pEnvelopeManager;
 };
 
 #endif

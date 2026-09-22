@@ -597,8 +597,10 @@ protected:
 
 		std::vector<SQuadRenderInfo> m_vQuadRenderInfo;
 		std::optional<CClipRegion> m_ClipRegion;
+		std::optional<CClipRegion> m_StaticBounds; // bounds without envelope
 	};
 	void CalculateClipping(CQuadCluster &QuadCluster);
+	void CalculateStaticBounds(CQuadCluster &QuadCluster);
 	bool CalculateQuadClipping(const CQuadCluster &QuadCluster, float aQuadOffsetMin[2], float aQuadOffsetMax[2]) const;
 
 	std::vector<CQuadCluster> m_vQuadClusters;
